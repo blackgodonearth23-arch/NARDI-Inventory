@@ -7,16 +7,12 @@ const { authenticate, authorize } = require('../middleware/auth');
 
 const schema = Joi.object({
   name: Joi.string().max(255).required(),
-  vendor: Joi.string().max(255).allow('', null).optional(),
-  license_key: Joi.string().max(500).allow('', null).optional(),
-  license_type: Joi.string().valid('org_wide', 'individual').required(),
-  total_seats: Joi.number().integer().min(1).optional(),
-  expiration_date: Joi.date().allow(null).optional(),
-  notes: Joi.string().max(500).allow('', null).optional()
-});
-
-const assignSchema = Joi.object({
-  user_ids: Joi.array().items(Joi.number().integer()).required()
+  vendor: Joi.string().max(255).allow('', null),
+  package: Joi.string().max(255).allow('', null),
+  duration: Joi.string().max(100).allow('', null),
+  expiration_date: Joi.date().allow(null),
+  provider: Joi.string().max(255).allow('', null),
+  notes: Joi.string().max(500).allow('', null)
 });
 
 router.get('/', authenticate, authorize('admin', 'ict_keeper'), async (req, res) => {
@@ -51,16 +47,6 @@ router.delete('/:id', authenticate, authorize('admin', 'ict_keeper'), async (req
   if (!lic) return res.status(404).json({ error: 'License not found' });
   await SoftwareLicense.softDelete(req.params.id);
   res.json({ message: 'License archived' });
-});
-
-router.post('/:id/assign', authenticate, authorize('admin', 'ict_keeper'), validate(assignSchema), async (req, res) => {
-  try {
-    const lic = await SoftwareLicense.assignUsers(req.params.id, req.body.user_ids);
-    res.json(lic);
-  } catch (err) {
-    console.error(err);
-    res.status(400).json({ error: err.message });
-  }
 });
 
 module.exports = router;

@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const Joi = require('joi');
+const db = require('../config/db');
 const Chemical = require('../models/Chemical');
 const Container = require('../models/Container');
 const Location = require('../models/Location');
@@ -10,21 +11,23 @@ const { authenticate, authorize } = require('../middleware/auth');
 const chemicalSchema = Joi.object({
   name: Joi.string().min(2).max(255).required(),
   cas_number: Joi.string().max(50).allow('', null).optional(),
-  unit: Joi.string().valid('container', 'ml', 'g', 'l', 'kg').default('container'),
   reorder_threshold: Joi.number().integer().min(0).default(1),
   chemical_type: Joi.string().max(50).default('Other')
 });
 
 const addContainersSchema = Joi.object({
   quantity: Joi.number().integer().min(1).required(),
-  location_id: Joi.number().integer().required()
+  location_id: Joi.number().integer().required(),
+  container_type: Joi.string().max(50).default('glass_bottle'),
+  container_size: Joi.number().allow(null),
+  container_unit: Joi.string().max(20).default('ml')
 });
 
 const openContainerSchema = Joi.object({
   pin_5: Joi.string().length(5).pattern(/^\d{5}$/).required()
 });
 
-// --- Chemical CRUD ---
+// ---- Chemical CRUD ----
 router.get('/', authenticate, async (req, res) => {
   const chemicals = await Chemical.getAll();
   res.json(chemicals);
@@ -36,7 +39,7 @@ router.get('/:id', authenticate, async (req, res) => {
   res.json(chem);
 });
 
-router.post('/', authenticate, authorize('lab_keeper'), validate(chemicalSchema), async (req, res) => {
+router.post('/', authenticate, authorize('admin', 'lab_keeper'), validate(chemicalSchema), async (req, res) => {
   try {
     const chem = await Chemical.create(req.body);
     res.status(201).json(chem);
@@ -46,21 +49,21 @@ router.post('/', authenticate, authorize('lab_keeper'), validate(chemicalSchema)
   }
 });
 
-router.put('/:id', authenticate, authorize('lab_keeper'), validate(chemicalSchema), async (req, res) => {
+router.put('/:id', authenticate, authorize('admin', 'lab_keeper'), validate(chemicalSchema), async (req, res) => {
   const chem = await Chemical.findById(req.params.id);
   if (!chem) return res.status(404).json({ error: 'Chemical not found' });
   const updated = await Chemical.update(req.params.id, req.body);
   res.json(updated);
 });
 
-router.delete('/:id', authenticate, authorize('lab_keeper'), async (req, res) => {
+router.delete('/:id', authenticate, authorize('admin', 'lab_keeper'), async (req, res) => {
   const chem = await Chemical.findById(req.params.id);
   if (!chem) return res.status(404).json({ error: 'Chemical not found' });
   await Chemical.softDelete(req.params.id);
   res.json({ message: 'Chemical archived' });
 });
 
-// --- Container management for a chemical ---
+// ---- Container management ----
 router.get('/:id/containers', authenticate, async (req, res) => {
   const chemicalId = req.params.id;
   const locationId = req.query.location_id ? parseInt(req.query.location_id) : null;
@@ -71,7 +74,6 @@ router.get('/:id/containers', authenticate, async (req, res) => {
     const loc = await Location.findById(locationId);
     if (!loc || loc.lab_id !== req.user.lab_id) return res.status(403).json({ error: 'Access denied' });
   }
-
   const containers = await Container.getByChemical(chemicalId, locationId);
   res.json(containers);
 });
@@ -81,13 +83,46 @@ router.post('/:id/containers', authenticate, authorize('lab_keeper'), validate(a
   const chem = await Chemical.findById(chemicalId);
   if (!chem) return res.status(404).json({ error: 'Chemical not found' });
 
-  const { quantity, location_id } = req.body;
-  try {
-    await Container.addContainers(chemicalId, location_id, quantity);
-    res.status(201).json({ message: `${quantity} container(s) added` });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Failed to add containers' });
+  const { quantity, location_id, container_type, container_size, container_unit } = req.body;
+
+  // Ensure location belongs to keeper's lab (already done)
+  if (req.user.role === 'lab_keeper') {
+    const location = await db('locations').where({ id: location_id }).first();
+    if (!location || location.lab_id !== req.user.lab_id) {
+      return res.status(403).json({ error: 'Location not in your lab' });
+    }
+    // Determine if PIN should be generated (only for sub‑storages)
+    const generatePin = location.type !== 'primary';
+    try {
+      await Container.addContainers(
+        chemicalId, location_id, quantity,
+        container_type || 'glass_bottle',
+        container_size || null,
+        container_unit || 'ml',
+        generatePin
+      );
+      res.status(201).json({ message: `${quantity} container(s) added` });
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ error: 'Failed to add containers' });
+    }
+  } else {
+    // admin can add anywhere; use generatePin based on location type
+    const location = await db('locations').where({ id: location_id }).first();
+    const generatePin = location.type !== 'primary';
+    try {
+      await Container.addContainers(
+        chemicalId, location_id, quantity,
+        container_type || 'glass_bottle',
+        container_size || null,
+        container_unit || 'ml',
+        generatePin
+      );
+      res.status(201).json({ message: `${quantity} container(s) added` });
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ error: 'Failed to add containers' });
+    }
   }
 });
 
