@@ -1,14 +1,15 @@
 import { useState, useEffect } from 'react';
 import {
   Title, Table, Button, Group, Badge, Modal, TextInput, Select,
-  ActionIcon, Text, Alert, Space, Stack, Paper
+  ActionIcon, Text, Alert, Paper, Stack
 } from '@mantine/core';
 import { IconPlus, IconTrash, IconEdit, IconMapPin } from '@tabler/icons-react';
+import { showNotification } from '@mantine/notifications';
 import api from '../api/axios';
 import { useAuth } from '../context/AuthContext';
 
 export default function LabsManagement() {
-  const { hasRole } = useAuth();   // role check for disabling buttons
+  const { hasRole, user } = useAuth();
   const [labs, setLabs] = useState([]);
   const [locations, setLocations] = useState([]);
   const [error, setError] = useState('');
@@ -17,11 +18,13 @@ export default function LabsManagement() {
   const [labOpened, setLabOpened] = useState(false);
   const [editingLab, setEditingLab] = useState(null);
   const [labForm, setLabForm] = useState({ name: '', description: '' });
+  const [savingLab, setSavingLab] = useState(false);
 
   // Location form state
   const [locOpened, setLocOpened] = useState(false);
   const [editingLoc, setEditingLoc] = useState(null);
-  const [locForm, setLocForm] = useState({ name: '', type: 'lab_sub', lab_id: '', parent_id: '', description: '' });
+  const [locForm, setLocForm] = useState({ name: '', type: 'lab_sub', lab_id: '', description: '' });
+  const [savingLoc, setSavingLoc] = useState(false);
 
   const fetchData = async () => {
     try {
@@ -38,7 +41,7 @@ export default function LabsManagement() {
 
   useEffect(() => { fetchData(); }, []);
 
-  // --- Lab handlers ---
+  // ---------- Lab actions (admin only) ----------
   const openAddLab = () => {
     setEditingLab(null);
     setLabForm({ name: '', description: '' });
@@ -53,16 +56,21 @@ export default function LabsManagement() {
 
   const saveLab = async () => {
     setError('');
+    setSavingLab(true);
     try {
       if (editingLab) {
         await api.put(`/labs/${editingLab.id}`, labForm);
       } else {
         await api.post('/labs', labForm);
       }
+      showNotification({ color: 'green', title: 'Lab saved' });
       setLabOpened(false);
       fetchData();
     } catch (err) {
-      setError(err.response?.data?.error || 'Lab save failed');
+      const msg = err.response?.data?.error || 'Lab save failed';
+      setError(msg);
+    } finally {
+      setSavingLab(false);
     }
   };
 
@@ -70,16 +78,22 @@ export default function LabsManagement() {
     if (!window.confirm('Delete this lab? This will also delete its sub‑storages.')) return;
     try {
       await api.delete(`/labs/${labId}`);
+      showNotification({ color: 'orange', title: 'Lab deleted' });
       fetchData();
     } catch (err) {
-      alert(err.response?.data?.error || 'Deletion failed');
+      showNotification({ color: 'red', title: 'Error', message: err.response?.data?.error || 'Deletion failed' });
     }
   };
 
-  // --- Location handlers ---
+  // ---------- Location actions (admin + keeper) ----------
   const openAddLoc = () => {
     setEditingLoc(null);
-    setLocForm({ name: '', type: 'lab_sub', lab_id: '', parent_id: '', description: '' });
+    setLocForm({
+      name: '',
+      type: 'lab_sub',
+      lab_id: user.role === 'lab_keeper' ? user.lab_id : '',   // keeper fixed to own lab
+      description: ''
+    });
     setLocOpened(true);
   };
 
@@ -88,8 +102,7 @@ export default function LabsManagement() {
     setLocForm({
       name: loc.name,
       type: loc.type,
-      lab_id: loc.lab_id || '',
-      parent_id: loc.parent_id || '',
+      lab_id: loc.lab_id,
       description: loc.description || ''
     });
     setLocOpened(true);
@@ -97,21 +110,27 @@ export default function LabsManagement() {
 
   const saveLoc = async () => {
     setError('');
+    setSavingLoc(true);
     try {
       const payload = {
-        ...locForm,
-        lab_id: locForm.lab_id ? parseInt(locForm.lab_id) : null,
-        parent_id: locForm.parent_id ? parseInt(locForm.parent_id) : null
+        name: locForm.name,
+        type: locForm.type,
+        lab_id: parseInt(locForm.lab_id) || null,
+        description: locForm.description
       };
       if (editingLoc) {
         await api.put(`/locations/${editingLoc.id}`, payload);
       } else {
         await api.post('/locations', payload);
       }
+      showNotification({ color: 'green', title: 'Location saved' });
       setLocOpened(false);
       fetchData();
     } catch (err) {
-      setError(err.response?.data?.error || 'Location save failed');
+      const msg = err.response?.data?.error || 'Location save failed';
+      setError(msg);
+    } finally {
+      setSavingLoc(false);
     }
   };
 
@@ -119,22 +138,31 @@ export default function LabsManagement() {
     if (!window.confirm('Delete this location?')) return;
     try {
       await api.delete(`/locations/${locId}`);
+      showNotification({ color: 'orange', title: 'Location deleted' });
       fetchData();
     } catch (err) {
-      alert(err.response?.data?.error || 'Deletion failed');
+      showNotification({ color: 'red', title: 'Error', message: err.response?.data?.error || 'Deletion failed' });
     }
   };
 
+  // Determine badge color for location type
+  const typeBadgeColor = (type) => (type === 'primary' ? 'blue' : 'gray');
+
   return (
     <>
-      <Title order={2} mb="lg">Labs & Locations</Title>
+      <Title order={2} mb="lg">Labs &amp; Locations</Title>
 
-      {/* === Labs section (admin only) === */}
+      {/* Labs section – admin only */}
       <Paper withBorder p="md" mb="xl">
         <Group position="apart" mb="sm">
           <Text weight={600}>Laboratories</Text>
           {hasRole('admin') && (
-            <Button size="xs" leftSection={<IconPlus size={16} />} onClick={openAddLab}>
+            <Button
+              size="xs"
+              leftSection={<IconPlus size={16} />}
+              onClick={openAddLab}
+              disabled={savingLab}
+            >
               Add Lab
             </Button>
           )}
@@ -144,11 +172,7 @@ export default function LabsManagement() {
 
         <Table striped>
           <thead>
-            <tr>
-              <th>Name</th>
-              <th>Description</th>
-              <th style={{ width: 120 }}>Actions</th>
-            </tr>
+            <tr><th>Name</th><th>Description</th><th style={{ width: 120 }}>Actions</th></tr>
           </thead>
           <tbody>
             {labs.map((lab) => (
@@ -156,18 +180,16 @@ export default function LabsManagement() {
                 <td>{lab.name}</td>
                 <td>{lab.description || '—'}</td>
                 <td>
-                  <Group spacing="xs">
-                    {hasRole('admin') && (
-                      <>
-                        <ActionIcon variant="light" size="sm" onClick={() => openEditLab(lab)}>
-                          <IconEdit size={16} />
-                        </ActionIcon>
-                        <ActionIcon color="red" variant="light" size="sm" onClick={() => deleteLab(lab.id)}>
-                          <IconTrash size={16} />
-                        </ActionIcon>
-                      </>
-                    )}
-                  </Group>
+                  {hasRole('admin') && (
+                    <Group spacing="xs">
+                      <ActionIcon variant="light" size="sm" onClick={() => openEditLab(lab)}>
+                        <IconEdit size={16} />
+                      </ActionIcon>
+                      <ActionIcon color="red" variant="light" size="sm" onClick={() => deleteLab(lab.id)}>
+                        <IconTrash size={16} />
+                      </ActionIcon>
+                    </Group>
+                  )}
                 </td>
               </tr>
             ))}
@@ -175,12 +197,17 @@ export default function LabsManagement() {
         </Table>
       </Paper>
 
-      {/* === Locations section (Admin & Lab Keeper) === */}
+      {/* Locations section – admin & keeper */}
       <Paper withBorder p="md">
         <Group position="apart" mb="sm">
           <Text weight={600}>Storage Locations</Text>
           {(hasRole('admin') || hasRole('lab_keeper')) && (
-            <Button size="xs" leftSection={<IconPlus size={16} />} onClick={openAddLoc}>
+            <Button
+              size="xs"
+              leftSection={<IconPlus size={16} />}
+              onClick={openAddLoc}
+              disabled={savingLoc}
+            >
               Add Location
             </Button>
           )}
@@ -188,41 +215,31 @@ export default function LabsManagement() {
 
         <Table striped>
           <thead>
-            <tr>
-              <th>Name</th>
-              <th>Type</th>
-              <th>Lab</th>
-              <th>Parent</th>
-              <th style={{ width: 120 }}>Actions</th>
-            </tr>
+            <tr><th>Name</th><th>Type</th><th>Lab</th><th style={{ width: 120 }}>Actions</th></tr>
           </thead>
           <tbody>
             {locations.map((loc) => {
               const lab = labs.find(l => l.id === loc.lab_id);
-              const parent = locations.find(l => l.id === loc.parent_id);
               return (
                 <tr key={loc.id}>
                   <td>{loc.name}</td>
                   <td>
-                    <Badge color={loc.type === 'main' ? 'red' : 'blue'}>
-                      {loc.type.replace('_', ' ')}
+                    <Badge color={typeBadgeColor(loc.type)}>
+                      {loc.type === 'primary' ? 'Primary Storage' : 'Sub-storage'}
                     </Badge>
                   </td>
                   <td>{lab ? lab.name : '—'}</td>
-                  <td>{parent ? parent.name : '—'}</td>
                   <td>
-                    <Group spacing="xs">
-                      {(hasRole('admin') || hasRole('lab_keeper')) && (
-                        <>
-                          <ActionIcon variant="light" size="sm" onClick={() => openEditLoc(loc)}>
-                            <IconEdit size={16} />
-                          </ActionIcon>
-                          <ActionIcon color="red" variant="light" size="sm" onClick={() => deleteLoc(loc.id)}>
-                            <IconTrash size={16} />
-                          </ActionIcon>
-                        </>
-                      )}
-                    </Group>
+                    {(hasRole('admin') || hasRole('lab_keeper')) && (
+                      <Group spacing="xs">
+                        <ActionIcon variant="light" size="sm" onClick={() => openEditLoc(loc)}>
+                          <IconEdit size={16} />
+                        </ActionIcon>
+                        <ActionIcon color="red" variant="light" size="sm" onClick={() => deleteLoc(loc.id)}>
+                          <IconTrash size={16} />
+                        </ActionIcon>
+                      </Group>
+                    )}
                   </td>
                 </tr>
               );
@@ -231,27 +248,45 @@ export default function LabsManagement() {
         </Table>
       </Paper>
 
-      {/* --- Lab Modal --- */}
+      {/* Lab Modal */}
       <Modal opened={labOpened} onClose={() => setLabOpened(false)} title={editingLab ? 'Edit Lab' : 'Add New Lab'}>
-        <TextInput label="Name" value={labForm.name} onChange={e => setLabForm({ ...labForm, name: e.currentTarget.value })} required />
-        <TextInput label="Description" mt="sm" value={labForm.description} onChange={e => setLabForm({ ...labForm, description: e.currentTarget.value })} />
-        <Button fullWidth mt="xl" onClick={saveLab}>{editingLab ? 'Update' : 'Create'}</Button>
+        <TextInput
+          label="Name"
+          value={labForm.name}
+          onChange={e => setLabForm({ ...labForm, name: e.currentTarget.value })}
+          required
+        />
+        <TextInput
+          label="Description"
+          mt="sm"
+          value={labForm.description}
+          onChange={e => setLabForm({ ...labForm, description: e.currentTarget.value })}
+        />
+        <Button fullWidth mt="xl" onClick={saveLab} loading={savingLab} disabled={savingLab}>
+          {editingLab ? 'Update' : 'Create'}
+        </Button>
       </Modal>
 
-      {/* --- Location Modal --- */}
+      {/* Location Modal */}
       <Modal opened={locOpened} onClose={() => setLocOpened(false)} title={editingLoc ? 'Edit Location' : 'Add New Location'}>
-        <TextInput label="Name" value={locForm.name} onChange={e => setLocForm({ ...locForm, name: e.currentTarget.value })} required />
+        <TextInput
+          label="Name"
+          value={locForm.name}
+          onChange={e => setLocForm({ ...locForm, name: e.currentTarget.value })}
+          required
+        />
         <Select
           label="Type"
           mt="sm"
           data={[
-            { value: 'main', label: 'Main Storage' },
-            { value: 'lab_sub', label: 'Lab Sub‑storage' }
+            { value: 'primary', label: 'Primary Storage' },
+            { value: 'lab_sub', label: 'Sub-storage' }
           ]}
           value={locForm.type}
           onChange={val => setLocForm({ ...locForm, type: val })}
         />
-        {locForm.type === 'lab_sub' && (
+        {/* Lab selection: keeper cannot change lab; admin can select any */}
+        {user.role === 'admin' && (
           <Select
             label="Lab"
             mt="sm"
@@ -261,16 +296,23 @@ export default function LabsManagement() {
             required
           />
         )}
-        <Select
-          label="Parent Location (optional)"
+        {user.role === 'lab_keeper' && (
+          <TextInput
+            label="Lab"
+            mt="sm"
+            value={labs.find(l => l.id === user.lab_id)?.name || 'Your Lab'}
+            disabled
+          />
+        )}
+        <TextInput
+          label="Description"
           mt="sm"
-          data={locations.map(l => ({ value: String(l.id), label: l.name }))}
-          value={locForm.parent_id ? String(locForm.parent_id) : null}
-          onChange={val => setLocForm({ ...locForm, parent_id: val })}
-          clearable
+          value={locForm.description}
+          onChange={e => setLocForm({ ...locForm, description: e.currentTarget.value })}
         />
-        <TextInput label="Description" mt="sm" value={locForm.description} onChange={e => setLocForm({ ...locForm, description: e.currentTarget.value })} />
-        <Button fullWidth mt="xl" onClick={saveLoc}>{editingLoc ? 'Update' : 'Create'}</Button>
+        <Button fullWidth mt="xl" onClick={saveLoc} loading={savingLoc} disabled={savingLoc}>
+          {editingLoc ? 'Update' : 'Create'}
+        </Button>
       </Modal>
     </>
   );

@@ -9,6 +9,12 @@ const Location = {
     return db('locations').where({ lab_id: labId }).orWhere({ type: 'main' });
   },
 
+  async findAll(filters = {}) {      // 🆕 added
+    const query = db('locations').select('*');
+    if (filters.lab_id) query.where('lab_id', filters.lab_id);
+    return query;
+  },
+
   async findById(id) {
     return db('locations').where({ id }).first();
   },

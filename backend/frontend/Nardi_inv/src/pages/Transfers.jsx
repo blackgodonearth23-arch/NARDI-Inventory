@@ -1,92 +1,84 @@
 import { useState, useEffect } from 'react';
 import {
-  Title, Paper, Group, Button, Select, Table, Checkbox, Text,
-  Alert, Badge, Modal, Stack, MultiSelect
+  Title, Paper, Select, Button, Group, Text, NumberInput, Grid, Alert, TextInput
 } from '@mantine/core';
-import { IconTransferIn, IconArrowRight } from '@tabler/icons-react';
+import { IconTransfer } from '@tabler/icons-react';
+import { showNotification } from '@mantine/notifications';
 import api from '../api/axios';
 import { useAuth } from '../context/AuthContext';
 
 export default function Transfers() {
-  const { hasRole } = useAuth();
+  const { user } = useAuth();
   const [locations, setLocations] = useState([]);
-  const [mainLocation, setMainLocation] = useState(null);
-  const [labSublocations, setLabSublocations] = useState([]);
-  const [bottles, setBottles] = useState([]);
-  const [selectedBottles, setSelectedBottles] = useState([]);   // bottle IDs to transfer
+  const [fromLocation, setFromLocation] = useState(null);
   const [toLocation, setToLocation] = useState(null);
-  const [error, setError] = useState('');
-  const [success, setSuccess] = useState('');
+  const [items, setItems] = useState([{ item_type: 'bottle', item_id: '', quantity: 1 }]);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
 
-  // Fetch all locations and filter
-  const fetchLocations = async () => {
-    const res = await api.get('/locations');
-    const allLocs = res.data;
-    setLocations(allLocs);
-    const main = allLocs.find(l => l.type === 'main');
-    setMainLocation(main);
-    setLabSublocations(allLocs.filter(l => l.type === 'lab_sub'));
-  };
-
-  // Fetch unopened bottles in Main Storage
-  const fetchBottlesInMain = async () => {
-    if (!mainLocation) return;
-    try {
-      const res = await api.get('/bottles', { params: { location_id: mainLocation.id } });
-      // Filter only unopened
-      const unopened = res.data.filter(b => b.status === 'unopened');
-      setBottles(unopened);
-    } catch (err) {
-      console.error(err);
-    }
-  };
-
+  // Fetch only locations from keeper's lab (API already filters by role)
   useEffect(() => {
-    fetchLocations();
+    const loadLocations = async () => {
+      try {
+        const res = await api.get('/locations');
+        setLocations(res.data || []);
+      } catch (err) {
+        console.error(err);
+      }
+    };
+    loadLocations();
   }, []);
 
-  useEffect(() => {
-    if (mainLocation) {
-      fetchBottlesInMain();
-    }
-  }, [mainLocation]);
+  // Separate primary and sub-storage for dropdowns
+  const primaryLocations = locations.filter(l => l.type === 'primary');
+  const subLocations = locations.filter(l => l.type === 'lab_sub');
 
-  // Toggle bottle selection
-  const toggleBottle = (bottleId) => {
-    setSelectedBottles(prev =>
-      prev.includes(bottleId) ? prev.filter(id => id !== bottleId) : [...prev, bottleId]
-    );
+  const addItem = () =>
+    setItems([...items, { item_type: 'bottle', item_id: '', quantity: 1 }]);
+
+  const removeItem = (index) => {
+    const updated = items.filter((_, i) => i !== index);
+    setItems(updated.length ? updated : [{ item_type: 'bottle', item_id: '', quantity: 1 }]);
   };
 
-  // Send transfer
-  const handleTransfer = async () => {
+  const updateItem = (index, field, value) => {
+    const updated = [...items];
+    updated[index][field] = value;
+    setItems(updated);
+  };
+
+  const handleSubmit = async () => {
     setError('');
-    setSuccess('');
-    if (!toLocation) {
-      setError('Please select a destination lab sub‑storage');
+    if (!fromLocation || !toLocation) {
+      setError('Please select source and destination locations.');
       return;
     }
-    if (selectedBottles.length === 0) {
-      setError('Please select at least one bottle to transfer');
-      return;
+    for (const item of items) {
+      if (!item.item_id) {
+        setError('All item IDs must be filled.');
+        return;
+      }
+      if (item.item_type === 'utensil' && item.quantity < 1) {
+        setError('Quantity must be at least 1.');
+        return;
+      }
     }
+
     setLoading(true);
     try {
-      const items = selectedBottles.map(id => ({
-        item_type: 'bottle',
-        item_id: id,
-        quantity: 1
-      }));
       await api.post('/transfers', {
-        from_location_id: mainLocation.id,
-        to_location_id: parseInt(toLocation),
-        items
+        from_location_id: fromLocation,
+        to_location_id: toLocation,
+        items: items.map(i => ({
+          item_type: i.item_type,
+          item_id: parseInt(i.item_id),
+          quantity: i.item_type === 'utensil' ? i.quantity : 1
+        }))
       });
-      setSuccess(`Successfully transferred ${items.length} bottle(s)`);
-      // Refresh bottle list
-      fetchBottlesInMain();
-      setSelectedBottles([]);
+      showNotification({ color: 'green', title: 'Success', message: 'Transfer completed' });
+      setFromLocation(null);
+      setToLocation(null);
+      setItems([{ item_type: 'bottle', item_id: '', quantity: 1 }]);
     } catch (err) {
       setError(err.response?.data?.error || 'Transfer failed');
     } finally {
@@ -94,85 +86,77 @@ export default function Transfers() {
     }
   };
 
-  // grouped bottles by chemical name
-  const bottlesByChemical = bottles.reduce((acc, b) => {
-    const name = b.chemical_name || 'Unknown';
-    if (!acc[name]) acc[name] = [];
-    acc[name].push(b);
-    return acc;
-  }, {});
-
   return (
     <>
-      <Title order={2} mb="lg">Transfers (Main → Lab)</Title>
-
-      {error && <Alert color="red" mb="md">{error}</Alert>}
-      {success && <Alert color="green" mb="md">{success}</Alert>}
+      <Title order={2} mb="lg">Transfer Items</Title>
+      {error && <Alert color="red" mb="md" onClose={() => setError('')} withCloseButton>{error}</Alert>}
+      <Paper withBorder p="md" mb="md">
+        <Grid>
+          <Grid.Col span={6}>
+            <Select
+              label="From (Primary Storage)"
+              placeholder="Select source"
+              data={primaryLocations.map(l => ({ value: l.id.toString(), label: l.name }))}
+              value={fromLocation?.toString()}
+              onChange={(val) => setFromLocation(parseInt(val))}
+              required
+            />
+          </Grid.Col>
+          <Grid.Col span={6}>
+            <Select
+              label="To (Sub-storage)"
+              placeholder="Select destination"
+              data={subLocations.map(l => ({ value: l.id.toString(), label: l.name }))}
+              value={toLocation?.toString()}
+              onChange={(val) => setToLocation(parseInt(val))}
+              required
+            />
+          </Grid.Col>
+        </Grid>
+      </Paper>
 
       <Paper withBorder p="md" mb="md">
-        <Group align="end">
-          <Select
-            label="Destination Lab Sub‑storage"
-            placeholder="Choose a lab location"
-            data={labSublocations.map(l => ({ value: String(l.id), label: l.name }))}
-            value={toLocation}
-            onChange={setToLocation}
-            required
-            style={{ width: 300 }}
-          />
-          <Button
-            leftSection={<IconTransferIn size={18} />}
-            onClick={handleTransfer}
-            loading={loading}
-            disabled={!toLocation || selectedBottles.length === 0}
-          >
-            Transfer Selected Bottles
-          </Button>
-        </Group>
-        <Text size="sm" color="dimmed" mt="xs">
-          Select unopened bottles from Main Storage and choose a lab sub‑storage above.
-        </Text>
+        {items.map((item, idx) => (
+          <Group key={idx} mb="sm" align="flex-end">
+            <Select
+              label="Type"
+              data={[
+                { value: 'bottle', label: 'Bottle' },
+                { value: 'equipment', label: 'Equipment' },
+                { value: 'utensil', label: 'Utensil' }
+              ]}
+              value={item.item_type}
+              onChange={(val) => updateItem(idx, 'item_type', val)}
+            />
+            <TextInput
+              label="Item ID"
+              value={item.item_id}
+              onChange={(e) => updateItem(idx, 'item_id', e.currentTarget.value)}
+              required
+            />
+            {item.item_type === 'utensil' && (
+              <NumberInput
+                label="Quantity"
+                min={1}
+                value={item.quantity}
+                onChange={(val) => updateItem(idx, 'quantity', val)}
+              />
+            )}
+            <Button color="red" variant="subtle" onClick={() => removeItem(idx)}>Remove</Button>
+          </Group>
+        ))}
+        <Button variant="outline" onClick={addItem}>+ Add Item</Button>
       </Paper>
 
-      <Paper withBorder p="md">
-        <Group position="apart" mb="sm">
-          <Text weight={600}>Bottles in Main Storage (unopened)</Text>
-          <Button size="xs" variant="light" onClick={fetchBottlesInMain}>Refresh</Button>
-        </Group>
-
-        {Object.keys(bottlesByChemical).length === 0 ? (
-          <Text color="dimmed">No unopened bottles in Main Storage.</Text>
-        ) : (
-          Object.entries(bottlesByChemical).map(([chemName, bottleList]) => (
-            <div key={chemName} style={{ marginBottom: 16 }}>
-              <Text weight={500} mb={4}>{chemName}</Text>
-              <Table striped>
-                <thead>
-                  <tr>
-                    <th style={{ width: 40 }}>Select</th>
-                    <th>PIN</th>
-                    <th>Status</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {bottleList.map(b => (
-                    <tr key={b.id}>
-                      <td>
-                        <Checkbox
-                          checked={selectedBottles.includes(b.id)}
-                          onChange={() => toggleBottle(b.id)}
-                        />
-                      </td>
-                      <td>{b.pin_5}</td>
-                      <td><Badge color="green">{b.status}</Badge></td>
-                    </tr>
-                  ))}
-                </tbody>
-              </Table>
-            </div>
-          ))
-        )}
-      </Paper>
+      <Button
+        fullWidth
+        leftSection={<IconTransfer size={18} />}
+        onClick={handleSubmit}
+        loading={loading}
+        disabled={loading || !fromLocation || !toLocation}
+      >
+        Execute Transfer
+      </Button>
     </>
   );
 }

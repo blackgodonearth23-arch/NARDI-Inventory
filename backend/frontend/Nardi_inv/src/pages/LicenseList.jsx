@@ -129,6 +129,7 @@ export default function LicenseList() {
         )}
         <TextInput type="date" label="Expiration Date" mt="sm" value={form.expiration_date} onChange={e => setForm({...form, expiration_date: e.currentTarget.value})} />
         <TextInput label="Notes" mt="sm" value={form.notes} onChange={e => setForm({...form, notes: e.currentTarget.value})} />
+          <TextInput label="Procured By" mt="sm" value={form.procured_by} onChange={e => setForm({...form, procured_by: e.currentTarget.value})} />
         <Button fullWidth mt="xl" onClick={save}>{editing ? 'Update' : 'Create'}</Button>
       </Modal>
 
@@ -141,6 +142,7 @@ export default function LicenseList() {
           placeholder="Select users"
           mb="md"
         />
+        
         <Button fullWidth onClick={saveAssign}>Save Assignments</Button>
       </Modal>
     </>

@@ -1,35 +1,39 @@
 import { useState, useEffect } from 'react';
 import {
-  Table, Title, Button, Group, Badge, Modal, TextInput, PasswordInput,
-  Select, NumberInput, ActionIcon, Space, Text, Alert
+  Title, Paper, Table, Button, Modal, TextInput, Select, Group, ActionIcon, Badge, Grid, NumberInput
 } from '@mantine/core';
-import { IconUserPlus, IconTrash, IconEdit, IconKey } from '@tabler/icons-react';
+import { IconEdit, IconTrash, IconUserPlus } from '@tabler/icons-react';
+import { showNotification } from '@mantine/notifications';
 import api from '../api/axios';
+import { useAuth } from '../context/AuthContext';
 
 export default function UserManagement() {
   const [users, setUsers] = useState([]);
   const [labs, setLabs] = useState([]);
-  const [opened, setOpened] = useState(false);
-  const [pinOpened, setPinOpened] = useState(false);
-  const [selectedUser, setSelectedUser] = useState(null);
+  const [modalOpen, setModalOpen] = useState(false);
+  const [editUser, setEditUser] = useState(null);
   const [form, setForm] = useState({
-    email: '',
-    password: '',
-    display_name: '',
-    role: 'lab_user',
-    lab_id: null,
-    pin_4: ''
+    email: '', password: '', display_name: '', role: 'lab_user', lab_id: null, pin_4: ''
   });
-  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
+  const { user } = useAuth();
 
   const fetchUsers = async () => {
-    const res = await api.get('/users');
-    setUsers(res.data);
+    try {
+      const res = await api.get('/users'); // only active users returned now
+      setUsers(res.data);
+    } catch (err) {
+      console.error(err);
+    }
   };
 
   const fetchLabs = async () => {
-    const res = await api.get('/labs');
-    setLabs(res.data);
+    try {
+      const res = await api.get('/labs');
+      setLabs(res.data);
+    } catch (err) {
+      console.error(err);
+    }
   };
 
   useEffect(() => {
@@ -37,147 +41,158 @@ export default function UserManagement() {
     fetchLabs();
   }, []);
 
-  const handleCreate = async () => {
-    setError('');
+  const openCreate = () => {
+    setEditUser(null);
+    setForm({ email: '', password: '', display_name: '', role: 'lab_user', lab_id: null, pin_4: '' });
+    setModalOpen(true);
+  };
+
+  const openEdit = (u) => {
+    setEditUser(u);
+    setForm({
+      email: u.email,
+      password: '',        // leave blank to keep current
+      display_name: u.display_name,
+      role: u.role,
+      lab_id: u.lab_id || null,
+      pin_4: ''            // blank = no change
+    });
+    setModalOpen(true);
+  };
+
+  const handleSubmit = async () => {
+    setLoading(true);
     try {
-      const payload = { ...form };
-      if (payload.role !== 'lab_user') delete payload.pin_4;
-      if (!payload.lab_id) delete payload.lab_id;
-      await api.post('/users', payload);
-      setOpened(false);
+      const payload = {
+        email: form.email,
+        display_name: form.display_name,
+        role: form.role,
+        lab_id: form.lab_id || null,
+      };
+      if (form.role === 'lab_user' && form.pin_4) payload.pin_4 = form.pin_4;
+
+      if (editUser) {
+        // Update
+        await api.put(`/users/${editUser.id}`, payload);
+        showNotification({ color: 'green', title: 'User updated' });
+      } else {
+        // Create
+        if (!form.password) throw new Error('Password required');
+        payload.password = form.password;
+        if (form.role === 'lab_user' && !form.pin_4) throw new Error('PIN required for lab user');
+        await api.post('/users', payload);
+        showNotification({ color: 'green', title: 'User created' });
+      }
+      setModalOpen(false);
       fetchUsers();
-      // reset form
-      setForm({ email: '', password: '', display_name: '', role: 'lab_user', lab_id: null, pin_4: '' });
     } catch (err) {
-      setError(err.response?.data?.error || 'Creation failed');
+      const message = err.response?.data?.error || err.message || 'Operation failed';
+      showNotification({ color: 'red', title: 'Error', message });
+    } finally {
+      setLoading(false);
     }
   };
 
-  const handleDisable = async (userId) => {
-    if (window.confirm('Disable this user?')) {
-      await api.delete(`/users/${userId}`);
-      fetchUsers();
-    }
-  };
-
-  const handleEnable = async (userId) => {
-    await api.patch(`/users/${userId}`, { is_active: true });
-    fetchUsers();
-  };
-
-  const handleRoleChange = async (userId, role) => {
-    await api.patch(`/users/${userId}`, { role });
-    fetchUsers();
-  };
-
-  const handlePinUpdate = async () => {
-    setError('');
-    try {
-      await api.patch(`/users/${selectedUser.id}/pin`, {
-        pin_4: form.pin_4
-      });
-      setPinOpened(false);
-    } catch (err) {
-      setError(err.response?.data?.error || 'PIN update failed');
+  const handleDeactivate = async (id) => {
+    if (window.confirm('Deactivate this user?')) {
+      try {
+        await api.delete(`/users/${id}`);
+        fetchUsers();
+        showNotification({ color: 'orange', title: 'User deactivated' });
+      } catch (err) {
+        console.error(err);
+      }
     }
   };
 
   return (
     <>
       <Title order={2} mb="lg">User Management</Title>
-
-      <Group position="apart" mb="md">
-        <Text>Total users: {users.length}</Text>
-        <Button leftSection={<IconUserPlus size={18} />} onClick={() => setOpened(true)}>
-          Add User
-        </Button>
+      <Group mb="md">
+        <Button leftSection={<IconUserPlus size={16} />} onClick={openCreate}>Add User</Button>
       </Group>
-
-      <Table striped highlightOnHover>
-        <thead>
-          <tr>
-            <th>Email</th>
-            <th>Name</th>
-            <th>Role</th>
-            <th>Lab</th>
-            <th>Status</th>
-            <th>Actions</th>
-          </tr>
-        </thead>
-        <tbody>
-          {users.map((user) => (
-            <tr key={user.id}>
-              <td>{user.email}</td>
-              <td>{user.display_name}</td>
-              <td>
-                <Badge color={user.role === 'admin' ? 'red' : user.role === 'lab_keeper' ? 'blue' : 'green'}>
-                  {user.role}
-                </Badge>
-              </td>
-              <td>{labs.find(l => l.id === user.lab_id)?.name || '—'}</td>
-              <td>
-                <Badge color={user.is_active ? 'teal' : 'gray'}>
-                  {user.is_active ? 'Active' : 'Disabled'}
-                </Badge>
-              </td>
-              <td>
-                <Group spacing="xs">
-                  {/* Role dropdown */}
-                  <Select
-                    size="xs"
-                    data={['admin', 'lab_keeper', 'ict_keeper', 'lab_user']}
-                    value={user.role}
-                    onChange={(val) => handleRoleChange(user.id, val)}
-                    w={100}
-                  />
-                  {/* PIN button – only for lab users */}
-                  {user.role === 'lab_user' && (
-                    <ActionIcon variant="light" size="sm" onClick={() => {
-                      setSelectedUser(user);
-                      setForm({ ...form, pin_4: '' });
-                      setPinOpened(true);
-                    }}>
-                      <IconKey size={16} />
-                    </ActionIcon>
-                  )}
-                  {/* Disable / Enable */}
-                  {user.is_active ? (
-                    <ActionIcon color="red" variant="light" size="sm" onClick={() => handleDisable(user.id)}>
-                      <IconTrash size={16} />
-                    </ActionIcon>
-                  ) : (
-                    <Button compact size="xs" variant="light" color="green" onClick={() => handleEnable(user.id)}>
-                      Enable
-                    </Button>
-                  )}
-                </Group>
-              </td>
+      <Paper withBorder>
+        <Table>
+          <thead>
+            <tr>
+              <th>Email</th>
+              <th>Display Name</th>
+              <th>Role</th>
+              <th>Lab</th>
+              <th>Actions</th>
             </tr>
-          ))}
-        </tbody>
-      </Table>
+          </thead>
+          <tbody>
+            {users.map(u => (
+              <tr key={u.id}>
+                <td>{u.email}</td>
+                <td>{u.display_name}</td>
+                <td><Badge>{u.role}</Badge></td>
+                <td>{labs.find(l => l.id === u.lab_id)?.name || '—'}</td>
+                <td>
+                  <Group gap="xs">
+                    <ActionIcon color="blue" onClick={() => openEdit(u)}><IconEdit size={16} /></ActionIcon>
+                    {u.id !== user.id && (
+                      <ActionIcon color="red" onClick={() => handleDeactivate(u.id)}>
+                        <IconTrash size={16} />
+                      </ActionIcon>
+                    )}
+                  </Group>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </Table>
+      </Paper>
 
-      {/* Create User Modal */}
-      <Modal opened={opened} onClose={() => setOpened(false)} title="Add new user" size="md">
-        {error && <Alert color="red" mb="md">{error}</Alert>}
-        <TextInput label="Email" value={form.email} onChange={(e) => setForm({ ...form, email: e.currentTarget.value })} required />
-        <PasswordInput label="Password" mt="sm" value={form.password} onChange={(e) => setForm({ ...form, password: e.currentTarget.value })} required />
-        <TextInput label="Full Name" mt="sm" value={form.display_name} onChange={(e) => setForm({ ...form, display_name: e.currentTarget.value })} required />
-        <Select label="Role" mt="sm" data={['admin', 'lab_keeper', 'ict_keeper', 'lab_user']} value={form.role} onChange={(val) => setForm({ ...form, role: val })} />
-        {form.role === 'lab_user' && (
-          <>
-            <Select label="Lab" mt="sm" data={labs.map(l => ({ value: String(l.id), label: l.name }))} value={form.lab_id ? String(form.lab_id) : null} onChange={(val) => setForm({ ...form, lab_id: val ? parseInt(val) : null })} />
-            <TextInput label="4-digit PIN" mt="sm" maxLength={4} value={form.pin_4} onChange={(e) => setForm({ ...form, pin_4: e.currentTarget.value })} required />
-          </>
-        )}
-        <Button fullWidth mt="xl" onClick={handleCreate}>Create User</Button>
-      </Modal>
-
-      {/* PIN Update Modal */}
-      <Modal opened={pinOpened} onClose={() => setPinOpened(false)} title={`Set PIN for ${selectedUser?.display_name}`}>
-        {error && <Alert color="red" mb="md">{error}</Alert>}
-        <TextInput label="New 4-digit PIN" maxLength={4} value={form.pin_4} onChange={(e) => setForm({ ...form, pin_4: e.currentTarget.value })} />
-        <Button fullWidth mt="md" onClick={handlePinUpdate}>Update PIN</Button>
+      <Modal
+        opened={modalOpen}
+        onClose={() => setModalOpen(false)}
+        title={editUser ? 'Edit User' : 'Create User'}
+        size="lg"
+      >
+        <Grid>
+          <Grid.Col span={12}><TextInput label="Email" value={form.email} onChange={e => setForm({...form, email: e.target.value})} required /></Grid.Col>
+          {!editUser && (
+            <Grid.Col span={12}><TextInput label="Password" type="password" value={form.password} onChange={e => setForm({...form, password: e.target.value})} required /></Grid.Col>
+          )}
+          <Grid.Col span={6}><TextInput label="Display Name" value={form.display_name} onChange={e => setForm({...form, display_name: e.target.value})} required /></Grid.Col>
+          <Grid.Col span={6}>
+            <Select
+              label="Role"
+              data={['admin','lab_keeper','ict_keeper','lab_user']}
+              value={form.role}
+              onChange={val => setForm({...form, role: val})}
+            />
+          </Grid.Col>
+          <Grid.Col span={6}>
+            <Select
+              label="Lab"
+              placeholder="None"
+              data={labs.map(l => ({ value: l.id.toString(), label: l.name }))}
+              value={form.lab_id?.toString()}
+              onChange={val => setForm({...form, lab_id: val ? parseInt(val) : null})}
+              clearable
+            />
+          </Grid.Col>
+          {form.role === 'lab_user' && (
+            <Grid.Col span={6}>
+              <TextInput
+                label="4-digit PIN"
+                value={form.pin_4}
+                onChange={e => setForm({...form, pin_4: e.target.value})}
+                maxLength={4}
+                pattern="[0-9]{4}"
+              />
+            </Grid.Col>
+          )}
+        </Grid>
+        <Group mt="md" justify="flex-end">
+          <Button variant="default" onClick={() => setModalOpen(false)}>Cancel</Button>
+          <Button onClick={handleSubmit} loading={loading} disabled={loading}>
+            {editUser ? 'Update' : 'Create'}
+          </Button>
+        </Group>
       </Modal>
     </>
   );

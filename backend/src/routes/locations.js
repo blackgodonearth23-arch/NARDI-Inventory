@@ -7,36 +7,48 @@ const { authenticate, authorize } = require('../middleware/auth');
 
 const locationSchema = Joi.object({
   name: Joi.string().min(2).max(255).required(),
-  type: Joi.string().valid('main', 'lab_sub').required(),
+  type: Joi.string().valid('primary', 'lab_sub').required(),
   lab_id: Joi.number().integer().when('type', { is: 'lab_sub', then: Joi.required(), otherwise: Joi.optional() }),
   parent_id: Joi.number().integer().allow(null).optional(),
   description: Joi.string().max(500).allow('', null).optional()
 });
 
-// All authenticated users: GET locations (filter by lab for lab_user)
+// GET / – all locations, filtered by role
 router.get('/', authenticate, async (req, res) => {
-  let locations;
-  if (req.user.role === 'lab_user') {
-    if (!req.user.lab_id) return res.status(403).json({ error: 'No lab assigned' });
-    locations = await Location.findByLab(req.user.lab_id);
-  } else if (['admin', 'lab_keeper'].includes(req.user.role)) {
-    locations = await Location.getAll();
-  } else {
-    return res.status(403).json({ error: 'Access denied' });
+  try {
+    let filter = {};
+
+    if (req.user.role === 'lab_keeper' || req.user.role === 'lab_user') {
+      // Both roles can only see locations linked to their assigned lab
+      if (!req.user.lab_id) {
+        return res.status(403).json({ error: 'No lab assigned' });
+      }
+      filter = { lab_id: req.user.lab_id };
+    } else if (req.query.lab_id) {
+      // Admin / ict_keeper can optionally filter by ?lab_id=
+      filter = { lab_id: req.query.lab_id };
+    }
+
+    const locations = await Location.findAll(filter);
+    res.json(locations);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to fetch locations' });
   }
-  res.json(locations);
 });
 
+// GET /:id – single location
 router.get('/:id', authenticate, async (req, res) => {
   const loc = await Location.findById(req.params.id);
   if (!loc) return res.status(404).json({ error: 'Location not found' });
+
   if (req.user.role === 'lab_user' && loc.lab_id !== req.user.lab_id) {
     return res.status(403).json({ error: 'Access denied' });
   }
   res.json(loc);
 });
 
-// Admin & Lab Keeper: create
+// POST / – create (admin, lab_keeper)
 router.post('/', authenticate, authorize('admin', 'lab_keeper'), validate(locationSchema), async (req, res) => {
   try {
     const location = await Location.create(req.body);
@@ -47,7 +59,7 @@ router.post('/', authenticate, authorize('admin', 'lab_keeper'), validate(locati
   }
 });
 
-// Admin & Lab Keeper: update
+// PUT /:id – update (admin, lab_keeper)
 router.put('/:id', authenticate, authorize('admin', 'lab_keeper'), validate(locationSchema), async (req, res) => {
   const loc = await Location.findById(req.params.id);
   if (!loc) return res.status(404).json({ error: 'Location not found' });
@@ -55,7 +67,7 @@ router.put('/:id', authenticate, authorize('admin', 'lab_keeper'), validate(loca
   res.json(updated);
 });
 
-// Admin & Lab Keeper: delete
+// DELETE /:id – delete (admin, lab_keeper)
 router.delete('/:id', authenticate, authorize('admin', 'lab_keeper'), async (req, res) => {
   const loc = await Location.findById(req.params.id);
   if (!loc) return res.status(404).json({ error: 'Location not found' });

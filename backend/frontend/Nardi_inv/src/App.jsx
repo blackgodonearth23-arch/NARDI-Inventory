@@ -5,7 +5,7 @@ import '@mantine/core/styles.css';
 import '@mantine/notifications/styles.css';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import Login from './pages/Login';
-import Dashboard from './pages/Dashboard';
+import DashboardRouter from './pages/DashboardRouter';
 import AppShell from './components/Layout/AppShell';
 import UserManagement from './pages/UserManagement';
 import LabsManagement from './pages/LabsManagement';
@@ -19,6 +19,8 @@ import ICTHardwareList from './pages/ICTHardwareList';
 import LicenseList from './pages/LicenseList';
 import AlertsList from './pages/AlertsList';
 import Reports from './pages/Reports';
+import UtilityList from './pages/UtilityList';
+
 
 function PrivateRoute({ children }) {
   const { user, loading } = useAuth();
@@ -32,7 +34,6 @@ function AppRoutes() {
       <Route path="/login" element={<Login />} />
       <Route path="/" element={<PrivateRoute><AppShell /></PrivateRoute>}>
         <Route index element={<Navigate to="/dashboard" />} />
-        <Route path="dashboard" element={<Dashboard />} />
         <Route path="users" element={<UserManagement />} />
         <Route path="labs" element={<LabsManagement />} />
         <Route path="chemicals" element={<ChemicalInventory />} />
@@ -45,6 +46,8 @@ function AppRoutes() {
         <Route path="ict-licenses" element={<LicenseList />} />
         <Route path="alerts" element={<AlertsList />} />
         <Route path="reports" element={<Reports />} />
+        <Route path="utilities" element={<UtilityList />} />
+        <Route path="dashboard" element={<DashboardRouter />} />
       </Route>
     </Routes>
   );

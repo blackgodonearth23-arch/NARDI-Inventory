@@ -4,7 +4,7 @@ const db = require('../config/db');
 const ExcelJS = require('exceljs');
 const { jsPDF } = require('jspdf');
 require('jspdf-autotable');
-const { authenticate, authorize } = require('../middleware/auth');
+const { authenticate } = require('../middleware/auth');
 
 // Helper: parse dates from query
 function getDateRange(query) {
@@ -13,16 +13,41 @@ function getDateRange(query) {
   return { from, to };
 }
 
-// ---------- 1. Usage trends (chemical consumption over time) ----------
+// Shared low‑stock query (no location type filter – includes primary and sub)
+async function getLowStockData(labId = null) {
+  let sql = `
+    SELECT c.id as chemical_id, c.name as chemical, c.cas_number, c.reorder_threshold,
+           l.name as location, labs.name as lab,
+           COUNT(b.id) as unopened
+    FROM chemical_containers b
+    JOIN chemicals c ON b.chemical_id = c.id AND c.is_deleted = false
+    JOIN locations l ON b.location_id = l.id
+    JOIN labs ON l.lab_id = labs.id
+    WHERE b.status = 'unopened' AND b.is_deleted = false
+  `;
+  const params = [];
+  if (labId) {
+    sql += ` AND labs.id = ?`;
+    params.push(labId);
+  }
+  sql += `
+    GROUP BY c.id, c.name, c.cas_number, c.reorder_threshold, l.id, l.name, labs.name
+    HAVING COUNT(b.id) <= c.reorder_threshold
+    ORDER BY labs.name, l.name, c.name
+  `;
+  const result = await db.raw(sql, params);
+  return result.rows;
+}
+
+// ---------- 1. Usage trends ----------
 router.get('/usage', authenticate, async (req, res) => {
   try {
     const { from, to } = getDateRange(req.query);
     const labId = req.query.lab_id ? parseInt(req.query.lab_id) : null;
 
-    // We count bottle_opened events per chemical per month
     let query = db('transactions')
-      .join('chemical_bottles', 'transactions.item_id', 'chemical_bottles.id')
-      .join('chemicals', 'chemical_bottles.chemical_id', 'chemicals.id')
+      .join('chemical_containers', 'transactions.item_id', 'chemical_containers.id')
+      .join('chemicals', 'chemical_containers.chemical_id', 'chemicals.id')
       .where('transactions.action_type', 'bottle_opened')
       .whereBetween('transactions.created_at', [from, to])
       .select(
@@ -36,15 +61,14 @@ router.get('/usage', authenticate, async (req, res) => {
 
     if (labId) {
       query = query
-        .join('locations', 'chemical_bottles.location_id', 'locations.id')
+        .join('locations', 'chemical_containers.location_id', 'locations.id')
         .where('locations.lab_id', labId);
     }
 
     const rows = await query;
-    // format as nested: { month: ..., chemicals: [ {name, count}, ... ] }
     const grouped = {};
     for (const r of rows) {
-      const monthKey = r.month.toISOString().slice(0,7);  // '2026-05'
+      const monthKey = r.month.toISOString().slice(0, 7);
       if (!grouped[monthKey]) grouped[monthKey] = [];
       grouped[monthKey].push({
         chemical_id: r.chemical_id,
@@ -60,23 +84,12 @@ router.get('/usage', authenticate, async (req, res) => {
   }
 });
 
-// ---------- 2. Restock list (chemicals below reorder threshold) ----------
+// ---------- 2. Restock list (JSON) ----------
 router.get('/restock-list', authenticate, async (req, res) => {
   try {
-    const lowStock = await db.raw(`
-      SELECT c.id, c.name, c.cas_number, c.reorder_threshold, 
-             l.name as location_name, labs.name as lab_name,
-             COUNT(b.id) as unopened_count
-      FROM chemical_bottles b
-      JOIN chemicals c ON b.chemical_id = c.id AND c.is_deleted = false
-      JOIN locations l ON b.location_id = l.id AND l.type = 'lab_sub'
-      JOIN labs ON l.lab_id = labs.id
-      WHERE b.status = 'unopened' AND b.is_deleted = false
-      GROUP BY c.id, c.name, c.cas_number, c.reorder_threshold, l.id, l.name, labs.name
-      HAVING COUNT(b.id) <= c.reorder_threshold
-      ORDER BY labs.name, l.name, c.name
-    `);
-    res.json(lowStock.rows);
+    const labId = req.query.lab_id ? parseInt(req.query.lab_id) : null;
+    const data = await getLowStockData(labId);
+    res.json(data);
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Failed to generate restock list' });
@@ -100,9 +113,9 @@ router.get('/export/excel', authenticate, async (req, res) => {
       { header: 'Bottles Opened', key: 'bottles', width: 15 }
     ];
 
-    let query = db('transactions')
-      .join('chemical_bottles', 'transactions.item_id', 'chemical_bottles.id')
-      .join('chemicals', 'chemical_bottles.chemical_id', 'chemicals.id')
+    let usageQuery = db('transactions')
+      .join('chemical_containers', 'transactions.item_id', 'chemical_containers.id')
+      .join('chemicals', 'chemical_containers.chemical_id', 'chemicals.id')
       .where('transactions.action_type', 'bottle_opened')
       .whereBetween('transactions.created_at', [from, to])
       .select(
@@ -114,15 +127,15 @@ router.get('/export/excel', authenticate, async (req, res) => {
       .orderBy('month', 'asc');
 
     if (labId) {
-      query = query
-        .join('locations', 'chemical_bottles.location_id', 'locations.id')
+      usageQuery = usageQuery
+        .join('locations', 'chemical_containers.location_id', 'locations.id')
         .where('locations.lab_id', labId);
     }
 
-    const usageRows = await query;
+    const usageRows = await usageQuery;
     for (const row of usageRows) {
       usageSheet.addRow({
-        month: row.month.toISOString().slice(0,7),
+        month: row.month.toISOString().slice(0, 7),
         chemical: row.chemical_name,
         bottles: parseInt(row.bottles_opened)
       });
@@ -138,19 +151,8 @@ router.get('/export/excel', authenticate, async (req, res) => {
       { header: 'Threshold', key: 'threshold', width: 12 }
     ];
 
-    const lowStock = await db.raw(`
-      SELECT c.name as chemical, labs.name as lab, l.name as location,
-             COUNT(b.id) as unopened, c.reorder_threshold
-      FROM chemical_bottles b
-      JOIN chemicals c ON b.chemical_id = c.id AND c.is_deleted = false
-      JOIN locations l ON b.location_id = l.id
-      JOIN labs ON l.lab_id = labs.id
-      WHERE b.status = 'unopened' AND b.is_deleted = false
-      GROUP BY c.name, labs.name, l.name, c.reorder_threshold
-      HAVING COUNT(b.id) <= c.reorder_threshold
-      ORDER BY labs.name, l.name, c.name
-    `);
-    for (const row of lowStock.rows) {
+    const lowStockData = await getLowStockData(labId);
+    for (const row of lowStockData) {
       restockSheet.addRow({
         chemical: row.chemical,
         lab: row.lab,
@@ -173,18 +175,8 @@ router.get('/export/excel', authenticate, async (req, res) => {
 // ---------- 4. Export to PDF (restock list) ----------
 router.get('/export/pdf', authenticate, async (req, res) => {
   try {
-    const lowStock = await db.raw(`
-      SELECT c.name as chemical, labs.name as lab, l.name as location,
-             COUNT(b.id) as unopened, c.reorder_threshold
-      FROM chemical_bottles b
-      JOIN chemicals c ON b.chemical_id = c.id AND c.is_deleted = false
-      JOIN locations l ON b.location_id = l.id
-      JOIN labs ON l.lab_id = labs.id
-      WHERE b.status = 'unopened' AND b.is_deleted = false
-      GROUP BY c.name, labs.name, l.name, c.reorder_threshold
-      HAVING COUNT(b.id) <= c.reorder_threshold
-      ORDER BY labs.name, l.name, c.name
-    `);
+    const labId = req.query.lab_id ? parseInt(req.query.lab_id) : null;
+    const lowStockData = await getLowStockData(labId);
 
     const doc = new jsPDF();
     doc.setFontSize(16);
@@ -192,7 +184,7 @@ router.get('/export/pdf', authenticate, async (req, res) => {
     doc.autoTable({
       startY: 30,
       head: [['Chemical', 'Lab', 'Location', 'Unopened', 'Threshold']],
-      body: lowStock.rows.map(r => [
+      body: lowStockData.map(r => [
         r.chemical,
         r.lab,
         r.location,
@@ -201,10 +193,10 @@ router.get('/export/pdf', authenticate, async (req, res) => {
       ])
     });
 
+    const pdfOutput = doc.output('arraybuffer');
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', 'attachment; filename=Restock_List.pdf');
-    const pdfOutput = doc.output();
-    res.send(Buffer.from(pdfOutput, 'binary'));
+    res.send(Buffer.from(pdfOutput));
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'PDF export failed' });

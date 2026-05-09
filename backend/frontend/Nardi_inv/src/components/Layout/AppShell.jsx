@@ -4,11 +4,14 @@ import {
   AppShell as MantineAppShell,
   Burger,
   Group,
-  Text,
   ThemeIcon,
   NavLink,
   Stack,
-  Box
+  Box,
+  Image,
+  ActionIcon,
+  Tooltip,
+  Text,            // <-- added
 } from '@mantine/core';
 import {
   IconLogout,
@@ -17,12 +20,15 @@ import {
   IconUsers,
   IconDashboard,
   IconLicense,
-  IconDeviceDesktop
+  IconDeviceDesktop,
+  IconBell,
+  IconReport,
+  IconTool,
+  IconArrowLeft,
+  IconHome,
 } from '@tabler/icons-react';
 import { useAuth } from '../../context/AuthContext';
-import { IconBell } from '@tabler/icons-react';
 import AlertBell from '../AlertBell';
-import { IconReport } from '@tabler/icons-react';
 
 export default function AppShell() {
   const { user, logout, hasRole } = useAuth();
@@ -42,7 +48,10 @@ export default function AppShell() {
       { icon: IconUsers, label: 'User Management', path: '/users' },
       { icon: IconBuildingWarehouse, label: 'Labs & Locations', path: '/labs' },
       { icon: IconFlask, label: 'Chemical Inventory', path: '/chemicals' },
-      { icon: IconReport, label: 'Reports', path: '/reports' }
+      { icon: IconReport, label: 'Reports', path: '/reports' },
+      { icon: IconDashboard, label: 'ICT Dashboard', path: '/ict-dashboard' },
+      { icon: IconDeviceDesktop, label: 'Hardware', path: '/ict-hardware' },
+      { icon: IconLicense, label: 'Licences', path: '/ict-licenses' }
     );
   }
 
@@ -50,9 +59,9 @@ export default function AppShell() {
     menuItems.push(
       { icon: IconDashboard, label: 'Dashboard', path: '/dashboard' },
       { icon: IconFlask, label: 'Inventory', path: '/chemicals' },
-      { icon: IconBuildingWarehouse, label: 'Equipment', path: '/equipment' },
-      { icon: IconBuildingWarehouse, label: 'Utensils', path: '/utensils' },
-      { icon: IconBuildingWarehouse, label: 'Transfers', path: '/transfers' }
+      { icon: IconBuildingWarehouse, label: 'Storage Locations', path: '/labs' },
+      { icon: IconTool, label: 'Utilities', path: '/utilities' },
+      { icon: IconReport, label: 'Transfers', path: '/transfers' }
     );
   }
 
@@ -63,7 +72,7 @@ export default function AppShell() {
     );
   }
 
-  if (hasRole('ict_keeper') || hasRole('admin')) {
+  if (hasRole('ict_keeper') && !hasRole('admin')) {
     menuItems.push(
       { icon: IconDashboard, label: 'ICT Dashboard', path: '/ict-dashboard' },
       { icon: IconDeviceDesktop, label: 'Hardware', path: '/ict-hardware' },
@@ -74,39 +83,35 @@ export default function AppShell() {
   return (
     <MantineAppShell
       header={{ height: 60 }}
-      navbar={{
-        width: 250,
-        breakpoint: 'sm',
-        collapsed: { mobile: !opened }
-      }}
+      navbar={{ width: 250, breakpoint: 'sm', collapsed: { mobile: !opened } }}
       padding="md"
     >
       <MantineAppShell.Header>
-        <Group h="100%" px="md">
-          <Burger opened={opened} onClick={() => setOpened(!opened)} size="sm" hiddenFrom="sm" />
-          <Text fw={700} size="lg">NARDI Inventory</Text>
-          <Group ml="auto" spacing="xs">
-  <NavLink
-    label=""
-    leftSection={
-      <ThemeIcon size="md" variant="subtle" color="gray">
-        <IconBell size={18} />
-      </ThemeIcon>
-    }
-    onClick={() => navigate('/alerts')}
-    styles={{ root: { padding: 0 } }}
-  />
- <Group ml="auto" spacing="sm">
-  <AlertBell />
-  <Text size="sm">{user?.email}</Text>
-</Group>
-</Group>
+        <Group h="100%" px="md" justify="space-between">
+          <Group>
+            <Burger opened={opened} onClick={() => setOpened(!opened)} size="sm" hiddenFrom="sm" />
+            <Tooltip label="Go back">
+              <ActionIcon variant="subtle" onClick={() => navigate(-1)}>
+                <IconArrowLeft size={20} />
+              </ActionIcon>
+            </Tooltip>
+            <Image src="/logo.png" alt="NARDI" height={36} fit="contain" />
+          </Group>
+          <Group gap="xs">
+            <Tooltip label="Dashboard">
+              <ActionIcon variant="subtle" onClick={() => navigate('/dashboard')}>
+                <IconHome size={20} />
+              </ActionIcon>
+            </Tooltip>
+            <AlertBell />
+            <Text size="sm">{user?.email}</Text>
+          </Group>
         </Group>
       </MantineAppShell.Header>
 
       <MantineAppShell.Navbar p="md">
-        <Stack>
-          <Box flex={1}>
+        <Stack justify="space-between" h="100%">
+          <Box>
             {menuItems.map((item) => (
               <NavLink
                 key={item.path}
