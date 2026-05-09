@@ -20,6 +20,7 @@ import LicenseList from './pages/LicenseList';
 import AlertsList from './pages/AlertsList';
 import Reports from './pages/Reports';
 import UtilityList from './pages/UtilityList';
+import EmployeeAssignments from './pages/EmployeeAssignments';
 
 
 function PrivateRoute({ children }) {
@@ -48,6 +49,7 @@ function AppRoutes() {
         <Route path="reports" element={<Reports />} />
         <Route path="utilities" element={<UtilityList />} />
         <Route path="dashboard" element={<DashboardRouter />} />
+        <Route path="ict-assignments" element={<EmployeeAssignments />} />
       </Route>
     </Routes>
   );

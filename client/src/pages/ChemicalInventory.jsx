@@ -9,8 +9,8 @@ import api from '../api/axios';
 import { useAuth } from '../context/AuthContext';
 
 const CHEMICAL_TYPES = ['Solution', 'Solvent', 'Salt', 'Acid', 'Base', 'Indicator', 'Buffer', 'Standard', 'Other'];
-const PHYSICAL_FORMS = ['liquid', 'solid', 'gas', 'pellets', 'powder', 'crystals', 'other'];
-const CONTAINER_TYPES = ['glass_bottle', 'plastic_bottle', 'canister', 'jar', 'ampoule', 'bag', 'other'];
+const CONTAINER_TYPES = ['glass_bottle', 'plastic_bottle', 'metal_canister', 'other'];
+const UNITS = ['ml', 'l', 'g', 'kg', 'bottle', 'other'];
 
 export default function ChemicalInventory() {
   const { user } = useAuth();
@@ -18,13 +18,12 @@ export default function ChemicalInventory() {
   const [locations, setLocations] = useState([]);
   const [filterType, setFilterType] = useState(null);
 
-  // Chemical form state
+  // Chemical form
   const [chemModalOpen, setChemModalOpen] = useState(false);
   const [editingChem, setEditingChem] = useState(null);
   const [chemForm, setChemForm] = useState({
-    name: '', cas_number: '', unit: 'bottle', reorder_threshold: 1,
-    chemical_type: 'Other', chemical_type_custom: '',
-    physical_form: 'liquid', physical_form_custom: ''
+    name: '', cas_number: '', reorder_threshold: 1,
+    chemical_type: 'Other', chemical_type_custom: ''
   });
   const [savingChem, setSavingChem] = useState(false);
 
@@ -32,18 +31,20 @@ export default function ChemicalInventory() {
   const [selectedChem, setSelectedChem] = useState(null);
   const [containers, setContainers] = useState([]);
   const [containerModalOpen, setContainerModalOpen] = useState(false);
-
   const [addContainerOpen, setAddContainerOpen] = useState(false);
   const [containerForm, setContainerForm] = useState({
     quantity: 1, location_id: null,
-    container_type: 'glass_bottle', container_type_custom: ''
+    container_type: 'glass_bottle', container_type_custom: '',
+    container_size: '', container_unit: 'ml'
   });
   const [addingContainers, setAddingContainers] = useState(false);
 
   const [openPin, setOpenPin] = useState('');
   const [openingContainer, setOpeningContainer] = useState(false);
 
-  // ----------- Data fetching -----------
+  useEffect(() => { fetchChemicals(); }, [filterType]);
+  useEffect(() => { fetchLocations(); }, []);
+
   const fetchChemicals = async () => {
     try {
       const res = await api.get('/chemicals');
@@ -60,33 +61,21 @@ export default function ChemicalInventory() {
     } catch (err) { console.error(err); }
   };
 
-  useEffect(() => { fetchLocations(); }, []);
-  useEffect(() => { fetchChemicals(); }, [filterType]);
-
-  // ----------- Chemical CRUD -----------
   const openAddChem = () => {
     setEditingChem(null);
-    setChemForm({
-      name: '', cas_number: '', unit: 'bottle', reorder_threshold: 1,
-      chemical_type: 'Other', chemical_type_custom: '',
-      physical_form: 'liquid', physical_form_custom: ''
-    });
+    setChemForm({ name: '', cas_number: '', reorder_threshold: 1, chemical_type: 'Other', chemical_type_custom: '' });
     setChemModalOpen(true);
   };
 
   const openEditChem = (chem) => {
     setEditingChem(chem);
-    const isChemPre = CHEMICAL_TYPES.includes(chem.chemical_type);
-    const isPhysPre = PHYSICAL_FORMS.includes(chem.physical_form);
+    const isPre = CHEMICAL_TYPES.includes(chem.chemical_type);
     setChemForm({
       name: chem.name,
       cas_number: chem.cas_number || '',
-      unit: chem.unit || 'bottle',
       reorder_threshold: chem.reorder_threshold || 1,
-      chemical_type: isChemPre ? chem.chemical_type : 'Other',
-      chemical_type_custom: isChemPre ? '' : (chem.chemical_type || ''),
-      physical_form: isPhysPre ? chem.physical_form : 'other',
-      physical_form_custom: isPhysPre ? '' : (chem.physical_form || '')
+      chemical_type: isPre ? chem.chemical_type : 'Other',
+      chemical_type_custom: isPre ? '' : (chem.chemical_type || '')
     });
     setChemModalOpen(true);
   };
@@ -97,33 +86,28 @@ export default function ChemicalInventory() {
       const payload = {
         name: chemForm.name,
         cas_number: chemForm.cas_number || null,
-        unit: chemForm.unit,
         reorder_threshold: chemForm.reorder_threshold,
         chemical_type: chemForm.chemical_type === 'Other' ? chemForm.chemical_type_custom : chemForm.chemical_type,
-        physical_form: chemForm.physical_form === 'other' ? chemForm.physical_form_custom : chemForm.physical_form,
       };
       if (editingChem) {
         await api.put(`/chemicals/${editingChem.id}`, payload);
       } else {
         await api.post('/chemicals', payload);
       }
-      showNotification({ color: 'green', title: editingChem ? 'Chemical updated' : 'Chemical created' });
+      showNotification({ color: 'green', title: editingChem ? 'Updated' : 'Created' });
       setChemModalOpen(false);
       fetchChemicals();
     } catch (err) {
-      showNotification({ color: 'red', title: 'Error', message: err.response?.data?.error || 'Save failed' });
+      showNotification({ color: 'red', title: 'Error', message: err.response?.data?.error });
     } finally { setSavingChem(false); }
   };
 
   const deleteChem = async (id) => {
     if (!window.confirm('Archive this chemical?')) return;
-    try {
-      await api.delete(`/chemicals/${id}`);
-      fetchChemicals();
-    } catch (err) { console.error(err); }
+    await api.delete(`/chemicals/${id}`);
+    fetchChemicals();
   };
 
-  // ----------- Container management -----------
   const loadContainers = async (chemicalId) => {
     try {
       const res = await api.get(`/chemicals/${chemicalId}/containers`);
@@ -143,7 +127,9 @@ export default function ChemicalInventory() {
       await api.post(`/chemicals/${selectedChem}/containers`, {
         quantity: containerForm.quantity,
         location_id: containerForm.location_id,
-        container_type: containerType
+        container_type: containerType,
+        container_size: containerForm.container_size ? parseFloat(containerForm.container_size) : null,
+        container_unit: containerForm.container_unit || 'ml'
       });
       showNotification({ color: 'green', title: `${containerForm.quantity} container(s) added` });
       setAddContainerOpen(false);
@@ -166,6 +152,9 @@ export default function ChemicalInventory() {
     } finally { setOpeningContainer(false); }
   };
 
+  const statusColor = (status) =>
+    status === 'In Stock' ? 'green' : status === 'Low' ? 'yellow' : 'red';
+
   return (
     <>
       <Title order={2} mb="lg">Chemical Inventory</Title>
@@ -185,7 +174,7 @@ export default function ChemicalInventory() {
         <Table striped>
           <thead>
             <tr>
-              <th>Name</th><th>CAS</th><th>Unit</th><th>Type</th><th>Form</th><th>Threshold</th><th>Actions</th>
+              <th>Name</th><th>CAS</th><th>Type</th><th>Threshold</th><th>Status</th><th>Stock (primary/sub)</th><th>Actions</th>
             </tr>
           </thead>
           <tbody>
@@ -193,10 +182,10 @@ export default function ChemicalInventory() {
               <tr key={chem.id}>
                 <td>{chem.name}</td>
                 <td>{chem.cas_number || '—'}</td>
-                <td>{chem.unit}</td>
                 <td><Badge variant="light">{chem.chemical_type || 'Other'}</Badge></td>
-                <td><Badge variant="light">{chem.physical_form || '—'}</Badge></td>
                 <td>{chem.reorder_threshold}</td>
+                <td><Badge color={statusColor(chem.stock_status)}>{chem.stock_status}</Badge></td>
+                <td>{chem.stock_display || '0 / 0'}</td>
                 <td>
                   <Group gap="xs">
                     <ActionIcon color="blue" onClick={() => openEditChem(chem)}><IconEdit size={16} /></ActionIcon>
@@ -214,9 +203,7 @@ export default function ChemicalInventory() {
       <Modal opened={chemModalOpen} onClose={() => setChemModalOpen(false)} title={editingChem ? 'Edit Chemical' : 'Add Chemical'}>
         <TextInput label="Name" value={chemForm.name} onChange={e => setChemForm({...chemForm, name: e.currentTarget.value})} required />
         <TextInput label="CAS Number" mt="sm" value={chemForm.cas_number} onChange={e => setChemForm({...chemForm, cas_number: e.currentTarget.value})} />
-        <Select label="Unit" mt="sm" data={['bottle','ml','g','l','kg']} value={chemForm.unit} onChange={val => setChemForm({...chemForm, unit: val})} />
         <NumberInput label="Reorder Threshold" mt="sm" min={0} value={chemForm.reorder_threshold} onChange={val => setChemForm({...chemForm, reorder_threshold: val || 1})} />
-
         <Select
           label="Chemical Type"
           mt="sm"
@@ -225,20 +212,8 @@ export default function ChemicalInventory() {
           onChange={val => setChemForm({...chemForm, chemical_type: val, chemical_type_custom: val !== 'Other' ? '' : chemForm.chemical_type_custom})}
         />
         {chemForm.chemical_type === 'Other' && (
-          <TextInput label="Specify chemical type" mt="xs" value={chemForm.chemical_type_custom} onChange={e => setChemForm({...chemForm, chemical_type_custom: e.currentTarget.value})} required />
+          <TextInput label="Specify type" mt="xs" value={chemForm.chemical_type_custom} onChange={e => setChemForm({...chemForm, chemical_type_custom: e.currentTarget.value})} required />
         )}
-
-        <Select
-          label="Physical Form"
-          mt="sm"
-          data={PHYSICAL_FORMS}
-          value={chemForm.physical_form}
-          onChange={val => setChemForm({...chemForm, physical_form: val, physical_form_custom: val !== 'other' ? '' : chemForm.physical_form_custom})}
-        />
-        {chemForm.physical_form === 'other' && (
-          <TextInput label="Specify physical form" mt="xs" value={chemForm.physical_form_custom} onChange={e => setChemForm({...chemForm, physical_form_custom: e.currentTarget.value})} required />
-        )}
-
         <Button fullWidth mt="xl" loading={savingChem} disabled={savingChem} onClick={saveChem}>
           {editingChem ? 'Update' : 'Create'}
         </Button>
@@ -248,7 +223,7 @@ export default function ChemicalInventory() {
       <Modal opened={containerModalOpen} onClose={() => setContainerModalOpen(false)} title="Containers" size="lg">
         <Group mb="sm">
           <Button leftSection={<IconPlus size={16} />} onClick={() => {
-            setContainerForm({ quantity: 1, location_id: null, container_type: 'glass_bottle', container_type_custom: '' });
+            setContainerForm({ quantity: 1, location_id: null, container_type: 'glass_bottle', container_type_custom: '', container_size: '', container_unit: 'ml' });
             setAddContainerOpen(true);
           }}>Add Containers</Button>
         </Group>
@@ -256,13 +231,15 @@ export default function ChemicalInventory() {
           <Text c="dimmed">No containers for this chemical.</Text>
         ) : (
           <Table>
-            <thead><tr><th>PIN</th><th>Status</th><th>Type</th><th>Location</th><th>Opened By</th></tr></thead>
+            <thead><tr><th>PIN</th><th>Status</th><th>Type</th><th>Size</th><th>Unit</th><th>Location</th><th>Opened By</th></tr></thead>
             <tbody>
               {containers.map(c => (
                 <tr key={c.id}>
                   <td><Badge color={c.status === 'unopened' ? 'green' : 'blue'}>{c.pin_5}</Badge></td>
                   <td>{c.status}</td>
                   <td>{c.container_type || '—'}</td>
+                  <td>{c.container_size || '—'}</td>
+                  <td>{c.container_unit || '—'}</td>
                   <td>{locations.find(l => l.id === c.location_id)?.name || c.location_id}</td>
                   <td>{c.opened_by || '—'}</td>
                 </tr>
@@ -289,8 +266,16 @@ export default function ChemicalInventory() {
             onChange={val => setContainerForm({...containerForm, container_type: val, container_type_custom: val !== 'other' ? '' : containerForm.container_type_custom})}
           />
           {containerForm.container_type === 'other' && (
-            <TextInput label="Specify container type" mt="xs" value={containerForm.container_type_custom} onChange={e => setContainerForm({...containerForm, container_type_custom: e.currentTarget.value})} required />
+            <TextInput label="Specify type" mt="xs" value={containerForm.container_type_custom} onChange={e => setContainerForm({...containerForm, container_type_custom: e.currentTarget.value})} required />
           )}
+          <NumberInput label="Size" mt="sm" value={containerForm.container_size} onChange={val => setContainerForm({...containerForm, container_size: val})} precision={2} />
+          <Select
+            label="Unit"
+            mt="sm"
+            data={UNITS}
+            value={containerForm.container_unit}
+            onChange={val => setContainerForm({...containerForm, container_unit: val})}
+          />
           <Button mt="md" fullWidth loading={addingContainers} disabled={!containerForm.location_id} onClick={addContainers}>Add</Button>
         </Modal>
 

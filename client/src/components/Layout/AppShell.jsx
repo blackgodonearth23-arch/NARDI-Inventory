@@ -51,7 +51,8 @@ export default function AppShell() {
       { icon: IconReport, label: 'Reports', path: '/reports' },
       { icon: IconDashboard, label: 'ICT Dashboard', path: '/ict-dashboard' },
       { icon: IconDeviceDesktop, label: 'Hardware', path: '/ict-hardware' },
-      { icon: IconLicense, label: 'Licences', path: '/ict-licenses' }
+      { icon: IconLicense, label: 'Licences', path: '/ict-licenses' },
+      { icon: IconUsers, label: 'Assignments', path: '/ict-assignments' }
     );
   }
 

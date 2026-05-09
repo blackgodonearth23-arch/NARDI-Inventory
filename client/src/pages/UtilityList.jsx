@@ -171,7 +171,7 @@ export default function UtilityList() {
               <th>Type</th>
               <th>Status</th>
               <th>Location</th>
-              <th>Count/Serial</th>
+              <th>Asset ID</th>
               <th style={{ width: 120 }}>Actions</th>
             </tr>
           </thead>
@@ -186,7 +186,7 @@ export default function UtilityList() {
                   </Badge>
                 </td>
                 <td>{locations.find(l => l.id === item.location_id)?.name || '—'}</td>
-                <td>{item.total_count || item.org_serial || '—'}</td>
+                <td>{item.asset_id || '—'}</td>
                 <td>
                   <Group gap="xs">
                     <ActionIcon color="blue" onClick={() => openEdit(item)}><IconEdit size={16} /></ActionIcon>
