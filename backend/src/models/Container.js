@@ -78,30 +78,28 @@ const Container = {
   },
 
   // Transfer containers: assign PIN and move from primary to sub‑storage
-  async transferContainers(chemicalId, quantity, fromLocationId, toLocationId) {
-    const trx = await db.transaction();
-    try {
-      // Lock and select unopened containers without PINs from the primary source
-      const containers = await trx('chemical_containers')
-        .where({
-          chemical_id: chemicalId,
-          location_id: fromLocationId,
-          status: 'unopened',
-          is_deleted: false
-        })
-        .whereNull('pin_5')
-        .limit(quantity)
-        .forUpdate()
-        .select('id');
+async transferContainers(chemicalId, quantity, fromLocationId, toLocationId, userId) {
+  const trx = await db.transaction();
+  try {
+    const containers = await trx('chemical_containers')
+      .where({
+        chemical_id: chemicalId,
+        location_id: fromLocationId,
+        status: 'unopened',
+        is_deleted: false
+      })
+      .limit(quantity)
+      .forUpdate()
+      .select('id', 'pin_5');
 
-      if (containers.length < quantity) {
-        throw new Error(`Not enough containers available. Requested ${quantity}, found ${containers.length}.`);
-      }
+    if (containers.length < quantity) {
+      throw new Error(`Not enough containers available. Requested ${quantity}, found ${containers.length}.`);
+    }
 
-      const updatedContainers = [];
-      for (const cont of containers) {
-        // Generate a unique PIN for each
-        let pin;
+    const updatedContainers = [];
+    for (const cont of containers) {
+      let pin = cont.pin_5;
+      if (!pin) {
         let success = false;
         let attempts = 0;
         while (!success && attempts < 100) {
@@ -110,41 +108,43 @@ const Container = {
           try {
             await trx('chemical_containers')
               .where({ id: cont.id })
-              .update({
-                pin_5: pin,
-                location_id: toLocationId,
-                updated_at: db.fn.now()
-              });
+              .update({ pin_5: pin, location_id: toLocationId, updated_at: db.fn.now() });
             success = true;
           } catch (err) {
-            if (err.code === '23505') continue; // duplicate PIN, try again
+            if (err.code === '23505') continue;
             throw err;
           }
         }
         if (!success) throw new Error('Could not assign unique PIN');
-        updatedContainers.push({ ...cont, pin_5: pin });
+      } else {
+        await trx('chemical_containers')
+          .where({ id: cont.id })
+          .update({ location_id: toLocationId, updated_at: db.fn.now() });
       }
+      updatedContainers.push({ id: cont.id, pin_5: pin });
+    }
 
-      // Log transactions
-      const txRows = containers.map(cont => ({
-        user_id: null, // will be set by route from req.user
+    // Insert transactions WITH user_id
+    await trx('transactions').insert(
+      updatedContainers.map(cont => ({
+        user_id: userId,                                // now properly set
         action_type: 'transfer',
         item_type: 'container',
         item_id: cont.id,
         from_location_id: fromLocationId,
         to_location_id: toLocationId,
         quantity_change: 1,
-        metadata: { pin_5: null } // will be filled below
-      }));
-      await trx('transactions').insert(txRows);
+        metadata: { pin_5: cont.pin_5 }
+      }))
+    );
 
-      await trx.commit();
-      return updatedContainers;
-    } catch (err) {
-      await trx.rollback();
-      throw err;
-    }
-  },
+    await trx.commit();
+    return updatedContainers;
+  } catch (err) {
+    await trx.rollback();
+    throw err;
+  }
+},
 
   async open(pin, userId) {
     // unchanged

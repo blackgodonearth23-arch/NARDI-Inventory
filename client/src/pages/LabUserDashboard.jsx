@@ -1,116 +1,189 @@
 import { useEffect, useState } from 'react';
 import {
-  Title, Paper, Text, Group, ThemeIcon, SimpleGrid, Button, TextInput, Modal, Alert, Badge
+  Title, Paper, Group, SimpleGrid, Modal, Button, Text, Badge, Table, TextInput, NumberInput
 } from '@mantine/core';
-import { IconFlask, IconSearch } from '@tabler/icons-react';
-import { useAuth } from '../context/AuthContext';
-import api from '../api/axios';
-import { useDisclosure } from '@mantine/hooks';
+import { IconFlask, IconClipboardCheck } from '@tabler/icons-react';
 import { showNotification } from '@mantine/notifications';
+import api from '../api/axios';
+import { useAuth } from '../context/AuthContext';
 
 export default function LabUserDashboard() {
   const { user } = useAuth();
+  const [chemicals, setChemicals] = useState([]);
+  const [selectedChem, setSelectedChem] = useState(null);
   const [containers, setContainers] = useState([]);
-  const [openPin, setOpenPin] = useState('');
-  const [openedModal, { open, close }] = useDisclosure(false);
-  const [error, setError] = useState('');
+  const [openModal, setOpenModal] = useState(false);
+  const [openConfirm, setOpenConfirm] = useState(false);
+  const [selectedContainer, setSelectedContainer] = useState(null);
+  const [auditModal, setAuditModal] = useState(false);
+  const [auditType, setAuditType] = useState('chemical');
+  const [auditItems, setAuditItems] = useState([]);
 
-  useEffect(() => {
-    if (user?.lab_id) loadContainers();
-  }, [user?.lab_id]);
+  useEffect(() => { fetchStock(); }, []);
 
-  const loadContainers = async () => {
+  const fetchStock = async () => {
     try {
-      // Get all locations of user's lab
-      const locsRes = await api.get('/locations', { params: { lab_id: user.lab_id } });
-      const locIds = locsRes.data.map(l => l.id);
-      if (locIds.length === 0) return setContainers([]);
+      const res = await api.get('/labs/stock');   // corrected path
+      setChemicals(res.data);
+    } catch (err) { console.error(err); }
+  };
 
-      // Fetch containers for each location
-      const allContainers = [];
-      for (const locId of locIds) {
-        const res = await api.get('/containers', { params: { location_id: locId } });
-        allContainers.push(...res.data);
-      }
-      setContainers(allContainers);
+  const openChemical = async (chemicalId) => {
+    try {
+      const res = await api.get(`/chemicals/${chemicalId}/containers`);
+      setContainers(res.data);
+      setSelectedChem(chemicals.find(c => c.id === chemicalId));
+      setOpenModal(true);
+    } catch (err) { console.error(err); }
+  };
+
+  const handleOpenClick = (container) => {
+    setSelectedContainer(container);
+    setOpenConfirm(true);
+  };
+
+  const confirmOpen = async () => {
+    if (!selectedContainer) return;
+    try {
+      await api.post(`/chemicals/${selectedChem.id}/open`, { pin_5: selectedContainer.pin_5 });
+      showNotification({ color: 'green', title: 'Container opened' });
+      setOpenConfirm(false);
+      openChemical(selectedChem.id);
     } catch (err) {
-      console.error(err);
+      showNotification({ color: 'red', title: 'Error', message: err.response?.data?.error });
     }
   };
 
-  const handleOpenContainer = async () => {
-    setError('');
+  const startAudit = async (type) => {
+    setAuditType(type);
+    if (type === 'chemical') {
+      setAuditItems(chemicals.map(c => ({
+        ...c, item_id: c.id, item_type: 'chemical', expected_count: c.unopened_count, actual_count: '', notes: ''
+      })));
+    } else {
+      try {
+        const res = await api.get('/utilities');
+        setAuditItems(res.data.map(u => ({
+          ...u, item_id: u.id, item_type: 'utility', expected_count: u.total_count, actual_count: '', notes: ''
+        })));
+      } catch (err) { console.error(err); }
+    }
+    setAuditModal(true);
+  };
+
+  const submitAudit = async () => {
+    const items = auditItems.map(i => ({
+      item_id: i.item_id,
+      item_type: i.item_type,
+      expected_count: i.expected_count,
+      actual_count: i.actual_count !== '' ? parseInt(i.actual_count) : null,
+      notes: i.notes
+    })).filter(i => i.actual_count !== null);
+
+    if (items.length === 0) {
+      showNotification({ color: 'yellow', title: 'No changes' });
+      return;
+    }
+
     try {
-      // Open container by PIN (the endpoint /chemicals/:id/open uses any chemical, but we need a generic open.
-      // The current open endpoint is tied to a specific chemical. We'll use a dedicated open-container endpoint?
-      // For now, we'll use the one from chemicals.js (POST /chemicals/:id/open) but that requires chemical id.
-      // Instead, we should use a new generic endpoint. To avoid breaking, we'll use the containers' own open.
-      // The model Container.open(pin, userId) works without chemical id. We'll call a new route.
-      // We'll fix this by adding a simple open-container route. (will do after)
-      await api.post('/containers/open', { pin_5: openPin }); // we'll create this route
-      showNotification({ color: 'green', title: 'Container opened' });
-      close();
-      loadContainers();
+      await api.post('/audits', { type: auditType, items });
+      showNotification({ color: 'green', title: 'Audit submitted to keeper' });
+      setAuditModal(false);
     } catch (err) {
-      setError(err.response?.data?.error || 'Failed to open container');
+      showNotification({ color: 'red', title: 'Error', message: err.response?.data?.error });
     }
   };
 
   return (
     <>
-      <Title order={2} mb="lg">My Lab – {user.display_name}</Title>
-      <SimpleGrid cols={{ base: 1, sm: 2 }} mb="lg">
-        <Paper withBorder p="md" radius="md">
-          <Group>
-            <ThemeIcon size="xl" variant="light">
+      <Title order={2} mb="lg">{user.display_name}'s Lab</Title>
+      <Group mb="md">
+        <Button leftSection={<IconClipboardCheck size={16} />} onClick={() => startAudit('chemical')}>Audit Chemicals</Button>
+        <Button leftSection={<IconClipboardCheck size={16} />} onClick={() => startAudit('utility')}>Audit Utilities</Button>
+      </Group>
+
+      <SimpleGrid cols={{ base: 1, sm: 2, lg: 3 }}>
+        {chemicals.map(chem => (
+          <Paper key={chem.id} withBorder p="md" style={{ cursor: 'pointer' }} onClick={() => openChemical(chem.id)}>
+            <Group>
               <IconFlask size={24} />
-            </ThemeIcon>
-            <div>
-              <Text c="dimmed" size="xs">Total Containers in My Lab</Text>
-              <Text fw={700} size="xl">{containers.length}</Text>
-            </div>
-          </Group>
-        </Paper>
-        <Paper withBorder p="md" radius="md">
-          <Button fullWidth leftSection={<IconSearch size={18} />} onClick={open}>
-            Open Container by PIN
-          </Button>
-        </Paper>
+              <div>
+                <Text fw={500}>{chem.name}</Text>
+                <Text size="sm" c="dimmed">{chem.unopened_count} containers available</Text>
+              </div>
+            </Group>
+          </Paper>
+        ))}
       </SimpleGrid>
 
-      <Text fw={600} mb="sm">Containers</Text>
-      {containers.length === 0 ? (
-        <Text c="dimmed">No containers in your lab yet.</Text>
-      ) : (
-        <Paper withBorder p="md">
-          <SimpleGrid cols={{ base: 1, sm: 2 }}>
-            {containers.map(c => (
-              <Paper key={c.id} withBorder p="xs">
-                <Group>
-                  <Text fw={500}>{c.chemical_name || 'Unknown'}</Text>
-                  <Badge color={c.status === 'unopened' ? 'green' : 'blue'}>
-                    {c.status}
-                  </Badge>
-                </Group>
-                <Text size="sm">PIN: {c.pin_5}</Text>
-                <Text size="xs">Type: {c.container_type}</Text>
-              </Paper>
+      {/* Container Details Modal */}
+      <Modal opened={openModal} onClose={() => setOpenModal(false)} title={`Containers for ${selectedChem?.name}`} size="lg">
+        <Table>
+          <thead><tr><th>PIN</th><th>Type</th><th>Size</th><th>Unit</th><th>Status</th><th>Location</th><th></th></tr></thead>
+          <tbody>
+            {containers.map(cont => (
+              <tr key={cont.id}>
+                <td><Badge>{cont.pin_5}</Badge></td>
+                <td>{cont.container_type}</td>
+                <td>{cont.container_size}</td>
+                <td>{cont.container_unit}</td>
+                <td><Badge color={cont.status === 'unopened' ? 'green' : 'blue'}>{cont.status}</Badge></td>
+                <td>{cont.location_name || cont.location_id}</td>
+                <td>
+                  {cont.status === 'unopened' && (
+                    <Button size="xs" onClick={() => handleOpenClick(cont)}>Open</Button>
+                  )}
+                </td>
+              </tr>
             ))}
-          </SimpleGrid>
-        </Paper>
-      )}
+          </tbody>
+        </Table>
+      </Modal>
 
-      <Modal opened={openedModal} onClose={close} title="Open Container">
-        <TextInput
-          label="Container 5‑digit PIN"
-          value={openPin}
-          onChange={(e) => setOpenPin(e.currentTarget.value)}
-          maxLength={5}
-          pattern="[0-9]{5}"
-          required
-        />
-        {error && <Alert color="red" mt="sm">{error}</Alert>}
-        <Button mt="md" onClick={handleOpenContainer}>Open</Button>
+      {/* Open Confirmation Modal */}
+      <Modal opened={openConfirm} onClose={() => setOpenConfirm(false)} title="Confirm Open">
+        <Text>Are you sure you want to open container PIN {selectedContainer?.pin_5}?</Text>
+        <Group mt="md">
+          <Button variant="default" onClick={() => setOpenConfirm(false)}>Cancel</Button>
+          <Button color="red" onClick={confirmOpen}>Open</Button>
+        </Group>
+      </Modal>
+
+      {/* Audit Modal */}
+      <Modal opened={auditModal} onClose={() => setAuditModal(false)} title={`Audit ${auditType === 'chemical' ? 'Chemicals' : 'Utilities'}`} size="lg">
+        <Table>
+          <thead><tr><th>Name</th><th>Expected</th><th>Actual</th><th>Notes</th></tr></thead>
+          <tbody>
+            {auditItems.map((item, idx) => (
+              <tr key={item.item_id}>
+                <td>{item.name}</td>
+                <td>{item.expected_count}</td>
+                <td>
+                  <NumberInput
+                    value={item.actual_count}
+                    onChange={(val) => {
+                      const newItems = [...auditItems];
+                      newItems[idx].actual_count = val;
+                      setAuditItems(newItems);
+                    }}
+                    min={0}
+                  />
+                </td>
+                <td>
+                  <TextInput
+                    value={item.notes}
+                    onChange={(e) => {
+                      const newItems = [...auditItems];
+                      newItems[idx].notes = e.target.value;
+                      setAuditItems(newItems);
+                    }}
+                  />
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </Table>
+        <Button fullWidth mt="md" onClick={submitAudit}>Submit Audit</Button>
       </Modal>
     </>
   );

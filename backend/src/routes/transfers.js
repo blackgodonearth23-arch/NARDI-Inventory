@@ -32,7 +32,9 @@ router.post('/', authenticate, authorize('lab_keeper'), validate(transferSchema)
     }
 
     // 2. Execute transfer (model handles PIN generation and logging)
-    const containers = await Container.transferContainers(chemical_id, quantity, from_location_id, to_location_id);
+    const containers = await Container.transferContainers(
+    chemical_id, quantity, from_location_id, to_location_id, userId
+    );
 
     // 3. Update transactions with user_id (since model didn't have it)
     await db('transactions')

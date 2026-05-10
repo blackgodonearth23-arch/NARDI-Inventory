@@ -19,6 +19,7 @@ const ictHardwareRoutes = require('./routes/ict_hardware');
 const softwareLicenseRoutes = require('./routes/software_licenses');
 const alertRoutes = require('./routes/alerts');
 const reportRoutes = require('./routes/reports');
+const auditRoutes = require('./routes/audits');
 
 // Start daily alert scheduler
 require('./jobs/dailyAlerts');
@@ -49,13 +50,15 @@ app.use('/api/users', userRoutes);
 app.use('/api/labs', labRoutes);
 app.use('/api/locations', locationRoutes);
 app.use('/api/containers', containerRoutes);
-app.use('/api/equipment', equipmentRoutes);        // can keep for backward compat
-app.use('/api/utensils', utensilRoutes);            // can keep for backward compat
+app.use('/api/equipment', equipmentRoutes); 
+app.use('/api/utensils', utensilRoutes);            
 app.use('/api/utilities', utilityRoutes);
 app.use('/api/ict/hardware', ictHardwareRoutes);
 app.use('/api/ict/licenses', softwareLicenseRoutes);
 app.use('/api/alerts', alertRoutes);
 app.use('/api/reports', reportRoutes);
+app.use('/api/audits', auditRoutes);
+
 
 // Health check
 app.get('/api/health', (req, res) => {
