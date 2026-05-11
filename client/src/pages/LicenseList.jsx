@@ -1,9 +1,9 @@
 import { useState, useEffect } from 'react';
 import {
   Title, Table, Button, Group, Modal, TextInput, ActionIcon,
-  Paper, Grid
+  Paper, Grid, Menu
 } from '@mantine/core';
-import { IconPlus, IconEdit, IconTrash } from '@tabler/icons-react';
+import { IconPlus, IconEdit, IconTrash, IconDots } from '@tabler/icons-react';
 import { showNotification } from '@mantine/notifications';
 import api from '../api/axios';
 import { useAuth } from '../context/AuthContext';
@@ -98,10 +98,21 @@ export default function LicenseList() {
                 <td>{lic.expiration_date ? new Date(lic.expiration_date).toLocaleDateString() : '—'}</td>
                 <td>{lic.provider || '—'}</td>
                 <td>
-                  <Group gap="xs">
-                    <ActionIcon color="blue" onClick={() => openEdit(lic)}><IconEdit size={16} /></ActionIcon>
-                    <ActionIcon color="red" onClick={() => deleteLic(lic.id)}><IconTrash size={16} /></ActionIcon>
-                  </Group>
+                  <Menu shadow="md" width={150}>
+                    <Menu.Target>
+                      <ActionIcon variant="default">
+                        <IconDots size={16} />
+                      </ActionIcon>
+                    </Menu.Target>
+                    <Menu.Dropdown>
+                      <Menu.Item leftSection={<IconEdit size={16} />} onClick={() => openEdit(lic)}>
+                        Edit
+                      </Menu.Item>
+                      <Menu.Item leftSection={<IconTrash size={16} />} color="red" onClick={() => deleteLic(lic.id)}>
+                        Delete
+                      </Menu.Item>
+                    </Menu.Dropdown>
+                  </Menu>
                 </td>
               </tr>
             ))}

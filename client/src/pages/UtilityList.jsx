@@ -1,9 +1,9 @@
 import { useState, useEffect } from 'react';
 import {
   Title, Paper, Table, Button, Group, Badge, Modal, TextInput, Select,
-  NumberInput, ActionIcon, Text, Alert, Grid
+  NumberInput, ActionIcon, Text, Alert, Grid, Menu
 } from '@mantine/core';
-import { IconPlus, IconEdit, IconTrash } from '@tabler/icons-react';
+import { IconPlus, IconEdit, IconTrash, IconDots } from '@tabler/icons-react';
 import { showNotification } from '@mantine/notifications';
 import api from '../api/axios';
 import { useAuth } from '../context/AuthContext';
@@ -202,10 +202,21 @@ export default function UtilityList() {
                 <td>{item.lab_name || '—'}</td>
                 <td>{item.location_name || '—'}</td>
                 <td>
-                  <Group gap="xs">
-                    <ActionIcon color="blue" onClick={() => openEdit(item)}><IconEdit size={16} /></ActionIcon>
-                    <ActionIcon color="red" onClick={() => handleDelete(item.id)}><IconTrash size={16} /></ActionIcon>
-                  </Group>
+                  <Menu shadow="md" width={150}>
+                    <Menu.Target>
+                      <ActionIcon variant="default">
+                        <IconDots size={16} />
+                      </ActionIcon>
+                    </Menu.Target>
+                    <Menu.Dropdown>
+                      <Menu.Item leftSection={<IconEdit size={16} />} onClick={() => openEdit(item)}>
+                        Edit
+                      </Menu.Item>
+                      <Menu.Item leftSection={<IconTrash size={16} />} color="red" onClick={() => handleDelete(item.id)}>
+                        Delete
+                      </Menu.Item>
+                    </Menu.Dropdown>
+                  </Menu>
                 </td>
               </tr>
             ))}

@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react';
 import {
-  Title, Paper, Table, Button, Modal, TextInput, Select, Group, ActionIcon, Badge, Grid, NumberInput
+  Title, Paper, Table, Button, Modal, TextInput, Select, Group, ActionIcon, Badge, Grid, NumberInput, Menu
 } from '@mantine/core';
-import { IconEdit, IconTrash, IconUserPlus } from '@tabler/icons-react';
+import { IconEdit, IconTrash, IconUserPlus, IconDots } from '@tabler/icons-react';
 import { showNotification } from '@mantine/notifications';
 import api from '../api/axios';
 import { useAuth } from '../context/AuthContext';
@@ -20,7 +20,7 @@ export default function UserManagement() {
 
   const fetchUsers = async () => {
     try {
-      const res = await api.get('/users'); // only active users returned now
+      const res = await api.get('/users');
       setUsers(res.data);
     } catch (err) {
       console.error(err);
@@ -51,11 +51,11 @@ export default function UserManagement() {
     setEditUser(u);
     setForm({
       email: u.email,
-      password: '',        // leave blank to keep current
+      password: '',
       display_name: u.display_name,
       role: u.role,
       lab_id: u.lab_id || null,
-      pin_4: ''            // blank = no change
+      pin_4: ''
     });
     setModalOpen(true);
   };
@@ -72,11 +72,9 @@ export default function UserManagement() {
       if (form.role === 'lab_user' && form.pin_4) payload.pin_4 = form.pin_4;
 
       if (editUser) {
-        // Update
         await api.put(`/users/${editUser.id}`, payload);
         showNotification({ color: 'green', title: 'User updated' });
       } else {
-        // Create
         if (!form.password) throw new Error('Password required');
         payload.password = form.password;
         if (form.role === 'lab_user' && !form.pin_4) throw new Error('PIN required for lab user');
@@ -130,14 +128,23 @@ export default function UserManagement() {
                 <td><Badge>{u.role}</Badge></td>
                 <td>{labs.find(l => l.id === u.lab_id)?.name || '—'}</td>
                 <td>
-                  <Group gap="xs">
-                    <ActionIcon color="blue" onClick={() => openEdit(u)}><IconEdit size={16} /></ActionIcon>
-                    {u.id !== user.id && (
-                      <ActionIcon color="red" onClick={() => handleDeactivate(u.id)}>
-                        <IconTrash size={16} />
+                  <Menu shadow="md" width={150}>
+                    <Menu.Target>
+                      <ActionIcon variant="default">
+                        <IconDots size={16} />
                       </ActionIcon>
-                    )}
-                  </Group>
+                    </Menu.Target>
+                    <Menu.Dropdown>
+                      <Menu.Item leftSection={<IconEdit size={16} />} onClick={() => openEdit(u)}>
+                        Edit
+                      </Menu.Item>
+                      {u.id !== user.id && (
+                        <Menu.Item leftSection={<IconTrash size={16} />} color="red" onClick={() => handleDeactivate(u.id)}>
+                          Deactivate
+                        </Menu.Item>
+                      )}
+                    </Menu.Dropdown>
+                  </Menu>
                 </td>
               </tr>
             ))}

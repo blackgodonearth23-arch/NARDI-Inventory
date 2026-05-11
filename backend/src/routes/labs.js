@@ -17,6 +17,36 @@ router.get('/', authenticate, async (req, res) => {
   res.json(labs);
 });
 
+// GET /api/labs/stock – MUST be above /:id to avoid conflict
+router.get('/stock', authenticate, async (req, res) => {
+  try {
+    if (!['lab_user', 'admin'].includes(req.user.role)) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+    const labId = req.user.lab_id;
+    if (!labId) return res.status(400).json({ error: 'No lab assigned' });
+
+    const chemicals = await db.raw(`
+      SELECT c.id, c.name, c.cas_number, c.reorder_threshold, c.chemical_type,
+             COUNT(cc.id) as unopened_count
+      FROM chemicals c
+      LEFT JOIN chemical_containers cc ON cc.chemical_id = c.id
+        AND cc.status = 'unopened' AND cc.is_deleted = false
+        AND cc.location_id IN (SELECT id FROM locations WHERE lab_id = ?)
+      WHERE c.is_deleted = false
+      GROUP BY c.id, c.name, c.cas_number, c.reorder_threshold, c.chemical_type
+      HAVING COUNT(cc.id) > 0
+      ORDER BY c.name
+    `, [labId]);
+
+    res.json(chemicals.rows);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to fetch lab stock' });
+  }
+});
+
+// GET /api/labs/:id (now after /stock)
 router.get('/:id', authenticate, async (req, res) => {
   const lab = await Lab.findById(req.params.id);
   if (!lab) return res.status(404).json({ error: 'Lab not found' });
@@ -48,63 +78,6 @@ router.delete('/:id', authenticate, authorize('admin'), async (req, res) => {
   if (!lab) return res.status(404).json({ error: 'Lab not found' });
   await Lab.delete(req.params.id);
   res.json({ message: 'Lab deleted' });
-});
-
-// Inside labs.js or a new file, mounted at /api/lab
-router.get('/stock', authenticate, authorize('lab_user'), async (req, res) => {
-  try {
-    const labId = req.user.lab_id;
-    if (!labId) return res.status(400).json({ error: 'No lab assigned' });
-
-    // Get all chemicals with counts of unopened containers in this lab's locations
-    const chemicals = await db.raw(`
-      SELECT c.id, c.name, c.cas_number, c.reorder_threshold, c.chemical_type,
-             COUNT(cc.id) as unopened_count
-      FROM chemicals c
-      LEFT JOIN chemical_containers cc ON cc.chemical_id = c.id
-        AND cc.status = 'unopened' AND cc.is_deleted = false
-        AND cc.location_id IN (SELECT id FROM locations WHERE lab_id = ?)
-      WHERE c.is_deleted = false
-      GROUP BY c.id, c.name, c.cas_number, c.reorder_threshold, c.chemical_type
-      HAVING COUNT(cc.id) > 0
-      ORDER BY c.name
-    `, [labId]);
-
-    res.json(chemicals.rows);
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Failed to fetch lab stock' });
-  }
-});
-
-// GET /api/labs/stock – for lab user's dashboard
-router.get('/stock', authenticate, async (req, res) => {
-  try {
-    // Only allow lab_user (or admin for testing)
-    if (req.user.role !== 'lab_user' && req.user.role !== 'admin') {
-      return res.status(403).json({ error: 'Access denied' });
-    }
-    const labId = req.user.lab_id;
-    if (!labId) return res.status(400).json({ error: 'No lab assigned' });
-
-    const chemicals = await db.raw(`
-      SELECT c.id, c.name, c.cas_number, c.reorder_threshold, c.chemical_type,
-             COUNT(cc.id) as unopened_count
-      FROM chemicals c
-      LEFT JOIN chemical_containers cc ON cc.chemical_id = c.id
-        AND cc.status = 'unopened' AND cc.is_deleted = false
-        AND cc.location_id IN (SELECT id FROM locations WHERE lab_id = ?)
-      WHERE c.is_deleted = false
-      GROUP BY c.id, c.name, c.cas_number, c.reorder_threshold, c.chemical_type
-      HAVING COUNT(cc.id) > 0
-      ORDER BY c.name
-    `, [labId]);
-
-    res.json(chemicals.rows);
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Failed to fetch lab stock' });
-  }
 });
 
 module.exports = router;

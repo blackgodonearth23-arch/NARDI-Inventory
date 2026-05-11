@@ -23,7 +23,7 @@ export default function LabUserDashboard() {
 
   const fetchStock = async () => {
     try {
-      const res = await api.get('/labs/stock');   // corrected path
+      const res = await api.get('/labs/stock');   // <-- THIS IS THE FIXED LINE
       setChemicals(res.data);
     } catch (err) { console.error(err); }
   };

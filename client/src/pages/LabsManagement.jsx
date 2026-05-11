@@ -1,9 +1,9 @@
 import { useState, useEffect } from 'react';
 import {
   Title, Table, Button, Group, Badge, Modal, TextInput, Select,
-  ActionIcon, Text, Alert, Paper, Stack
+  ActionIcon, Text, Alert, Paper, Stack, Menu
 } from '@mantine/core';
-import { IconPlus, IconTrash, IconEdit, IconMapPin } from '@tabler/icons-react';
+import { IconPlus, IconTrash, IconEdit, IconMapPin, IconDots } from '@tabler/icons-react';
 import { showNotification } from '@mantine/notifications';
 import api from '../api/axios';
 import { useAuth } from '../context/AuthContext';
@@ -91,7 +91,7 @@ export default function LabsManagement() {
     setLocForm({
       name: '',
       type: 'lab_sub',
-      lab_id: user.role === 'lab_keeper' ? user.lab_id : '',   // keeper fixed to own lab
+      lab_id: user.role === 'lab_keeper' ? user.lab_id : '',
       description: ''
     });
     setLocOpened(true);
@@ -145,7 +145,6 @@ export default function LabsManagement() {
     }
   };
 
-  // Determine badge color for location type
   const typeBadgeColor = (type) => (type === 'primary' ? 'blue' : 'gray');
 
   return (
@@ -181,14 +180,21 @@ export default function LabsManagement() {
                 <td>{lab.description || '—'}</td>
                 <td>
                   {hasRole('admin') && (
-                    <Group spacing="xs">
-                      <ActionIcon variant="light" size="sm" onClick={() => openEditLab(lab)}>
-                        <IconEdit size={16} />
-                      </ActionIcon>
-                      <ActionIcon color="red" variant="light" size="sm" onClick={() => deleteLab(lab.id)}>
-                        <IconTrash size={16} />
-                      </ActionIcon>
-                    </Group>
+                    <Menu shadow="md" width={150}>
+                      <Menu.Target>
+                        <ActionIcon variant="default" size="sm">
+                          <IconDots size={16} />
+                        </ActionIcon>
+                      </Menu.Target>
+                      <Menu.Dropdown>
+                        <Menu.Item leftSection={<IconEdit size={16} />} onClick={() => openEditLab(lab)}>
+                          Edit
+                        </Menu.Item>
+                        <Menu.Item leftSection={<IconTrash size={16} />} color="red" onClick={() => deleteLab(lab.id)}>
+                          Delete
+                        </Menu.Item>
+                      </Menu.Dropdown>
+                    </Menu>
                   )}
                 </td>
               </tr>
@@ -231,14 +237,21 @@ export default function LabsManagement() {
                   <td>{lab ? lab.name : '—'}</td>
                   <td>
                     {(hasRole('admin') || hasRole('lab_keeper')) && (
-                      <Group spacing="xs">
-                        <ActionIcon variant="light" size="sm" onClick={() => openEditLoc(loc)}>
-                          <IconEdit size={16} />
-                        </ActionIcon>
-                        <ActionIcon color="red" variant="light" size="sm" onClick={() => deleteLoc(loc.id)}>
-                          <IconTrash size={16} />
-                        </ActionIcon>
-                      </Group>
+                      <Menu shadow="md" width={150}>
+                        <Menu.Target>
+                          <ActionIcon variant="default" size="sm">
+                            <IconDots size={16} />
+                          </ActionIcon>
+                        </Menu.Target>
+                        <Menu.Dropdown>
+                          <Menu.Item leftSection={<IconEdit size={16} />} onClick={() => openEditLoc(loc)}>
+                            Edit
+                          </Menu.Item>
+                          <Menu.Item leftSection={<IconTrash size={16} />} color="red" onClick={() => deleteLoc(loc.id)}>
+                            Delete
+                          </Menu.Item>
+                        </Menu.Dropdown>
+                      </Menu>
                     )}
                   </td>
                 </tr>
@@ -285,7 +298,6 @@ export default function LabsManagement() {
           value={locForm.type}
           onChange={val => setLocForm({ ...locForm, type: val })}
         />
-        {/* Lab selection: keeper cannot change lab; admin can select any */}
         {user.role === 'admin' && (
           <Select
             label="Lab"

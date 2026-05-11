@@ -1,9 +1,9 @@
 import { useState, useEffect, useMemo } from 'react';
 import {
   Title, Tabs, Table, Button, Group, Badge, Modal, TextInput, Select,
-  NumberInput, ActionIcon, Text, Paper, Grid, Drawer, Tooltip
+  NumberInput, ActionIcon, Text, Paper, Grid, Drawer, Menu
 } from '@mantine/core';
-import { IconPlus, IconEdit, IconTrash, IconTransfer, IconHistory } from '@tabler/icons-react';
+import { IconPlus, IconEdit, IconTrash, IconTransfer, IconHistory, IconDots } from '@tabler/icons-react';
 import { showNotification } from '@mantine/notifications';
 import api from '../api/axios';
 import { useAuth } from '../context/AuthContext';
@@ -300,20 +300,27 @@ export default function ICTHardwareList() {
               <tr key={hw.id}>
                 {renderRow(hw)}
                 <td>
-                  <Group gap="xs">
-                    <ActionIcon color="blue" onClick={() => openEdit(hw)}>
-                      <IconEdit size={16} />
-                    </ActionIcon>
-                    <ActionIcon color="orange" onClick={() => openTransfer(hw)}>
-                      <IconTransfer size={16} />
-                    </ActionIcon>
-                    <ActionIcon color="cyan" onClick={() => openDetail(hw)}>
-                      <IconHistory size={16} />
-                    </ActionIcon>
-                    <ActionIcon color="red" onClick={() => deleteHw(hw.id)}>
-                      <IconTrash size={16} />
-                    </ActionIcon>
-                  </Group>
+                  <Menu shadow="md" width={200}>
+                    <Menu.Target>
+                      <ActionIcon variant="default">
+                        <IconDots size={16} />
+                      </ActionIcon>
+                    </Menu.Target>
+                    <Menu.Dropdown>
+                      <Menu.Item leftSection={<IconEdit size={16} />} onClick={() => openEdit(hw)}>
+                        Edit
+                      </Menu.Item>
+                      <Menu.Item leftSection={<IconTransfer size={16} />} onClick={() => openTransfer(hw)}>
+                        Transfer
+                      </Menu.Item>
+                      <Menu.Item leftSection={<IconHistory size={16} />} onClick={() => openDetail(hw)}>
+                        History
+                      </Menu.Item>
+                      <Menu.Item leftSection={<IconTrash size={16} />} color="red" onClick={() => deleteHw(hw.id)}>
+                        Delete
+                      </Menu.Item>
+                    </Menu.Dropdown>
+                  </Menu>
                 </td>
               </tr>
             ))}
@@ -321,7 +328,7 @@ export default function ICTHardwareList() {
         </Table>
       </Paper>
 
-      {/* Add/Edit Modal */}
+      {/* Add/Edit Modal (unchanged) */}
       <Modal 
         opened={modalOpen} 
         onClose={() => setModalOpen(false)} 

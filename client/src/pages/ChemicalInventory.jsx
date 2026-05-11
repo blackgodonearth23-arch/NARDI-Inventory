@@ -1,12 +1,15 @@
 import { useState, useEffect } from 'react';
 import {
   Title, Paper, Table, Button, Group, Badge, Modal, TextInput, Select,
-  NumberInput, ActionIcon, Text, Alert, Grid
+  NumberInput, Text, Alert, Grid, Menu
 } from '@mantine/core';
-import { IconPlus, IconEdit, IconTrash, IconPackage } from '@tabler/icons-react';
+import {
+  IconPlus, IconEdit, IconTrash, IconPackage, IconTransfer
+} from '@tabler/icons-react';
 import { showNotification } from '@mantine/notifications';
 import api from '../api/axios';
 import { useAuth } from '../context/AuthContext';
+import ActionsMenu from '../components/ActionsMenu';
 
 const CHEMICAL_TYPES = ['Solution', 'Solvent', 'Salt', 'Acid', 'Base', 'Indicator', 'Buffer', 'Standard', 'Other'];
 const CONTAINER_TYPES = ['glass_bottle', 'plastic_bottle', 'metal_canister', 'other'];
@@ -18,7 +21,7 @@ export default function ChemicalInventory() {
   const [locations, setLocations] = useState([]);
   const [filterType, setFilterType] = useState(null);
 
-  // Chemical form
+  // Chemical form state
   const [chemModalOpen, setChemModalOpen] = useState(false);
   const [editingChem, setEditingChem] = useState(null);
   const [chemForm, setChemForm] = useState({
@@ -27,24 +30,28 @@ export default function ChemicalInventory() {
   });
   const [savingChem, setSavingChem] = useState(false);
 
-  // Container management
+  // Bottle management (container renamed to bottles in UI)
   const [selectedChem, setSelectedChem] = useState(null);
-  const [containers, setContainers] = useState([]);
-  const [containerModalOpen, setContainerModalOpen] = useState(false);
-  const [addContainerOpen, setAddContainerOpen] = useState(false);
-  const [containerForm, setContainerForm] = useState({
+  const [bottles, setBottles] = useState([]);
+  const [bottleModalOpen, setBottleModalOpen] = useState(false);
+  const [addBottleOpen, setAddBottleOpen] = useState(false);
+  const [bottleForm, setBottleForm] = useState({
     quantity: 1, location_id: null,
     container_type: 'glass_bottle', container_type_custom: '',
     container_size: '', container_unit: 'ml'
   });
-  const [addingContainers, setAddingContainers] = useState(false);
-
+  const [addingBottles, setAddingBottles] = useState(false);
   const [openPin, setOpenPin] = useState('');
-  const [openingContainer, setOpeningContainer] = useState(false);
+  const [openingBottle, setOpeningBottle] = useState(false);
 
-  useEffect(() => { fetchChemicals(); }, [filterType]);
-  useEffect(() => { fetchLocations(); }, []);
+  // Inline transfer modal
+  const [transferOpen, setTransferOpen] = useState(false);
+  const [transferQty, setTransferQty] = useState(1);
+  const [transferFrom, setTransferFrom] = useState(null);
+  const [transferTo, setTransferTo] = useState(null);
+  const [transferLoading, setTransferLoading] = useState(false);
 
+  // Fetch all chemicals
   const fetchChemicals = async () => {
     try {
       const res = await api.get('/chemicals');
@@ -61,9 +68,16 @@ export default function ChemicalInventory() {
     } catch (err) { console.error(err); }
   };
 
+  useEffect(() => { fetchLocations(); }, []);
+  useEffect(() => { fetchChemicals(); }, [filterType]);
+
+  // ---------- Chemical CRUD ----------
   const openAddChem = () => {
     setEditingChem(null);
-    setChemForm({ name: '', cas_number: '', reorder_threshold: 1, chemical_type: 'Other', chemical_type_custom: '' });
+    setChemForm({
+      name: '', cas_number: '', reorder_threshold: 1,
+      chemical_type: 'Other', chemical_type_custom: ''
+    });
     setChemModalOpen(true);
   };
 
@@ -94,11 +108,11 @@ export default function ChemicalInventory() {
       } else {
         await api.post('/chemicals', payload);
       }
-      showNotification({ color: 'green', title: editingChem ? 'Updated' : 'Created' });
+      showNotification({ color: 'green', title: editingChem ? 'Chemical updated' : 'Chemical created' });
       setChemModalOpen(false);
       fetchChemicals();
     } catch (err) {
-      showNotification({ color: 'red', title: 'Error', message: err.response?.data?.error });
+      showNotification({ color: 'red', title: 'Error', message: err.response?.data?.error || 'Save failed' });
     } finally { setSavingChem(false); }
   };
 
@@ -108,50 +122,83 @@ export default function ChemicalInventory() {
     fetchChemicals();
   };
 
-  const loadContainers = async (chemicalId) => {
+  // ---------- Bottle management ----------
+  const loadBottles = async (chemicalId) => {
     try {
       const res = await api.get(`/chemicals/${chemicalId}/containers`);
-      setContainers(res.data);
-      setSelectedChem(chemicalId);
-      setContainerModalOpen(true);
+      setBottles(res.data);
+      setSelectedChem(chemicals.find(c => c.id === chemicalId));
+      setBottleModalOpen(true);
     } catch (err) { console.error(err); }
   };
 
-  const addContainers = async () => {
-    if (!containerForm.location_id) return;
-    setAddingContainers(true);
+  const addBottles = async () => {
+    if (!bottleForm.location_id) return;
+    setAddingBottles(true);
     try {
-      const containerType = containerForm.container_type === 'other'
-        ? containerForm.container_type_custom
-        : containerForm.container_type;
-      await api.post(`/chemicals/${selectedChem}/containers`, {
-        quantity: containerForm.quantity,
-        location_id: containerForm.location_id,
+      const containerType = bottleForm.container_type === 'other'
+        ? bottleForm.container_type_custom
+        : bottleForm.container_type;
+      await api.post(`/chemicals/${selectedChem.id}/containers`, {
+        quantity: bottleForm.quantity,
+        location_id: bottleForm.location_id,
         container_type: containerType,
-        container_size: containerForm.container_size ? parseFloat(containerForm.container_size) : null,
-        container_unit: containerForm.container_unit || 'ml'
+        container_size: bottleForm.container_size ? parseFloat(bottleForm.container_size) : null,
+        container_unit: bottleForm.container_unit || 'ml'
       });
-      showNotification({ color: 'green', title: `${containerForm.quantity} container(s) added` });
-      setAddContainerOpen(false);
-      loadContainers(selectedChem);
+      showNotification({ color: 'green', title: `${bottleForm.quantity} bottle(s) added` });
+      setAddBottleOpen(false);
+      loadBottles(selectedChem.id);
     } catch (err) {
       showNotification({ color: 'red', title: 'Error', message: err.response?.data?.error });
-    } finally { setAddingContainers(false); }
+    } finally { setAddingBottles(false); }
   };
 
-  const openContainerByPin = async () => {
+  const openBottleByPin = async () => {
     if (!openPin || openPin.length !== 5) return;
-    setOpeningContainer(true);
+    setOpeningBottle(true);
     try {
-      await api.post(`/chemicals/${selectedChem}/open`, { pin_5: openPin });
-      showNotification({ color: 'green', title: 'Container opened' });
+      await api.post(`/chemicals/${selectedChem.id}/open`, { pin_5: openPin });
+      showNotification({ color: 'green', title: 'Bottle opened' });
       setOpenPin('');
-      loadContainers(selectedChem);
+      loadBottles(selectedChem.id);
     } catch (err) {
       showNotification({ color: 'red', title: 'Error', message: err.response?.data?.error });
-    } finally { setOpeningContainer(false); }
+    } finally { setOpeningBottle(false); }
   };
 
+  // ---------- Transfer from within chemicals list ----------
+  const openTransferModal = (chem) => {
+    setSelectedChem(chem);
+    const primaryLocs = locations.filter(l => l.type === 'primary');
+    setTransferFrom(primaryLocs.length === 1 ? primaryLocs[0].id : null);
+    setTransferTo(null);
+    setTransferQty(1);
+    setTransferOpen(true);
+  };
+
+  const executeTransfer = async () => {
+    if (!transferFrom || !transferTo || transferQty < 1) return;
+    setTransferLoading(true);
+    try {
+      await api.post('/transfers', {
+        chemical_id: selectedChem.id,
+        quantity: transferQty,
+        from_location_id: transferFrom,
+        to_location_id: transferTo
+      });
+      showNotification({ color: 'green', title: `${transferQty} bottle(s) transferred` });
+      setTransferOpen(false);
+      fetchChemicals();
+    } catch (err) {
+      showNotification({ color: 'red', title: 'Error', message: err.response?.data?.error });
+    } finally { setTransferLoading(false); }
+  };
+
+  const primaryLocations = locations.filter(l => l.type === 'primary');
+  const subLocations = locations.filter(l => l.type === 'lab_sub');
+
+  // Status color helper
   const statusColor = (status) =>
     status === 'In Stock' ? 'green' : status === 'Low' ? 'yellow' : 'red';
 
@@ -174,7 +221,8 @@ export default function ChemicalInventory() {
         <Table striped>
           <thead>
             <tr>
-              <th>Name</th><th>CAS</th><th>Type</th><th>Threshold</th><th>Status</th><th>Stock (primary/sub)</th><th>Actions</th>
+              <th>Name</th><th>CAS</th><th>Type</th>
+              <th>Status</th><th>Stock (sub/primary)</th>
             </tr>
           </thead>
           <tbody>
@@ -183,15 +231,15 @@ export default function ChemicalInventory() {
                 <td>{chem.name}</td>
                 <td>{chem.cas_number || '—'}</td>
                 <td><Badge variant="light">{chem.chemical_type || 'Other'}</Badge></td>
-                <td>{chem.reorder_threshold}</td>
                 <td><Badge color={statusColor(chem.stock_status)}>{chem.stock_status}</Badge></td>
                 <td>{chem.stock_display || '0 / 0'}</td>
                 <td>
-                  <Group gap="xs">
-                    <ActionIcon color="blue" onClick={() => openEditChem(chem)}><IconEdit size={16} /></ActionIcon>
-                    <ActionIcon color="gray" onClick={() => loadContainers(chem.id)}><IconPackage size={16} /></ActionIcon>
-                    <ActionIcon color="red" onClick={() => deleteChem(chem.id)}><IconTrash size={16} /></ActionIcon>
-                  </Group>
+                  <ActionsMenu>
+                    <Menu.Item leftSection={<IconEdit size={16} />} onClick={() => openEditChem(chem)}>Edit</Menu.Item>
+                    <Menu.Item leftSection={<IconPackage size={16} />} onClick={() => loadBottles(chem.id)}>View Bottles</Menu.Item>
+                    <Menu.Item leftSection={<IconTransfer size={16} />} onClick={() => openTransferModal(chem)}>Transfer</Menu.Item>
+                    <Menu.Item leftSection={<IconTrash size={16} />} color="red" onClick={() => deleteChem(chem.id)}>Archive</Menu.Item>
+                  </ActionsMenu>
                 </td>
               </tr>
             ))}
@@ -199,7 +247,7 @@ export default function ChemicalInventory() {
         </Table>
       </Paper>
 
-      {/* Chemical Modal */}
+      {/* ---------- Chemical Add/Edit Modal ---------- */}
       <Modal opened={chemModalOpen} onClose={() => setChemModalOpen(false)} title={editingChem ? 'Edit Chemical' : 'Add Chemical'}>
         <TextInput label="Name" value={chemForm.name} onChange={e => setChemForm({...chemForm, name: e.currentTarget.value})} required />
         <TextInput label="CAS Number" mt="sm" value={chemForm.cas_number} onChange={e => setChemForm({...chemForm, cas_number: e.currentTarget.value})} />
@@ -219,77 +267,111 @@ export default function ChemicalInventory() {
         </Button>
       </Modal>
 
-      {/* Container List Modal */}
-      <Modal opened={containerModalOpen} onClose={() => setContainerModalOpen(false)} title="Containers" size="lg">
+      {/* ---------- Bottles List Modal ---------- */}
+      <Modal opened={bottleModalOpen} onClose={() => setBottleModalOpen(false)} title={`Bottles for ${selectedChem?.name}`} size="lg">
         <Group mb="sm">
           <Button leftSection={<IconPlus size={16} />} onClick={() => {
-            setContainerForm({ quantity: 1, location_id: null, container_type: 'glass_bottle', container_type_custom: '', container_size: '', container_unit: 'ml' });
-            setAddContainerOpen(true);
-          }}>Add Containers</Button>
+            setBottleForm({ quantity: 1, location_id: null, container_type: 'glass_bottle', container_type_custom: '', container_size: '', container_unit: 'ml' });
+            setAddBottleOpen(true);
+          }}>Add Bottles</Button>
         </Group>
-        {containers.length === 0 ? (
-          <Text c="dimmed">No containers for this chemical.</Text>
+        {bottles.length === 0 ? (
+          <Text c="dimmed">No bottles for this chemical.</Text>
         ) : (
           <Table>
             <thead><tr><th>PIN</th><th>Status</th><th>Type</th><th>Size</th><th>Unit</th><th>Location</th><th>Opened By</th></tr></thead>
             <tbody>
-              {containers.map(c => (
-                <tr key={c.id}>
-                  <td><Badge color={c.status === 'unopened' ? 'green' : 'blue'}>{c.pin_5}</Badge></td>
-                  <td>{c.status}</td>
-                  <td>{c.container_type || '—'}</td>
-                  <td>{c.container_size || '—'}</td>
-                  <td>{c.container_unit || '—'}</td>
-                  <td>{locations.find(l => l.id === c.location_id)?.name || c.location_id}</td>
-                  <td>{c.opened_by || '—'}</td>
+              {bottles.map(b => (
+                <tr key={b.id}>
+                  <td><Badge color={b.status === 'unopened' ? 'green' : 'blue'}>{b.pin_5}</Badge></td>
+                  <td>{b.status}</td>
+                  <td>{b.container_type || '—'}</td>
+                  <td>{b.container_size || '—'}</td>
+                  <td>{b.container_unit || '—'}</td>
+                  <td>{locations.find(l => l.id === b.location_id)?.name || b.location_id}</td>
+                  <td>{b.opened_by || '—'}</td>
                 </tr>
               ))}
             </tbody>
           </Table>
         )}
 
-        <Modal opened={addContainerOpen} onClose={() => setAddContainerOpen(false)} title="Add Containers">
-          <NumberInput label="Quantity" min={1} value={containerForm.quantity} onChange={val => setContainerForm({...containerForm, quantity: val || 1})} />
+        {/* Add Bottles Sub‑modal */}
+        <Modal opened={addBottleOpen} onClose={() => setAddBottleOpen(false)} title="Add Bottles">
+          <NumberInput label="Quantity" min={1} value={bottleForm.quantity} onChange={val => setBottleForm({...bottleForm, quantity: val || 1})} />
           <Select
             label="Location"
             mt="sm"
             data={locations.map(l => ({ value: l.id.toString(), label: l.name }))}
-            value={containerForm.location_id?.toString()}
-            onChange={val => setContainerForm({...containerForm, location_id: val ? parseInt(val) : null})}
+            value={bottleForm.location_id?.toString()}
+            onChange={val => setBottleForm({...bottleForm, location_id: val ? parseInt(val) : null})}
             required
           />
           <Select
-            label="Container Type"
+            label="Bottle Type"
             mt="sm"
             data={CONTAINER_TYPES}
-            value={containerForm.container_type}
-            onChange={val => setContainerForm({...containerForm, container_type: val, container_type_custom: val !== 'other' ? '' : containerForm.container_type_custom})}
+            value={bottleForm.container_type}
+            onChange={val => setBottleForm({...bottleForm, container_type: val, container_type_custom: val !== 'other' ? '' : bottleForm.container_type_custom})}
           />
-          {containerForm.container_type === 'other' && (
-            <TextInput label="Specify type" mt="xs" value={containerForm.container_type_custom} onChange={e => setContainerForm({...containerForm, container_type_custom: e.currentTarget.value})} required />
+          {bottleForm.container_type === 'other' && (
+            <TextInput label="Specify type" mt="xs" value={bottleForm.container_type_custom} onChange={e => setBottleForm({...bottleForm, container_type_custom: e.currentTarget.value})} required />
           )}
-          <NumberInput label="Size" mt="sm" value={containerForm.container_size} onChange={val => setContainerForm({...containerForm, container_size: val})} precision={2} />
+          <NumberInput label="Size" mt="sm" value={bottleForm.container_size} onChange={val => setBottleForm({...bottleForm, container_size: val})} precision={2} />
           <Select
             label="Unit"
             mt="sm"
             data={UNITS}
-            value={containerForm.container_unit}
-            onChange={val => setContainerForm({...containerForm, container_unit: val})}
+            value={bottleForm.container_unit}
+            onChange={val => setBottleForm({...bottleForm, container_unit: val})}
           />
-          <Button mt="md" fullWidth loading={addingContainers} disabled={!containerForm.location_id} onClick={addContainers}>Add</Button>
+          <Button mt="md" fullWidth loading={addingBottles} disabled={!bottleForm.location_id} onClick={addBottles}>Add</Button>
         </Modal>
 
+        {/* Open by PIN */}
         <Group mt="md" align="flex-end">
           <TextInput
-            label="Open container by PIN"
+            label="Open bottle by PIN"
             placeholder="5-digit code"
             value={openPin}
             onChange={e => setOpenPin(e.currentTarget.value)}
             maxLength={5}
             style={{ flex: 1 }}
           />
-          <Button loading={openingContainer} disabled={openPin.length !== 5} onClick={openContainerByPin}>Open</Button>
+          <Button loading={openingBottle} disabled={openPin.length !== 5} onClick={openBottleByPin}>Open</Button>
         </Group>
+      </Modal>
+
+      {/* ---------- Inline Transfer Modal ---------- */}
+      <Modal opened={transferOpen} onClose={() => setTransferOpen(false)} title={`Transfer Bottles – ${selectedChem?.name}`}>
+        <Text mb="sm">
+          Available in primary storage: {selectedChem?.primary_count ?? 0}
+        </Text>
+        <NumberInput
+          label="Quantity to Transfer"
+          min={1}
+          max={selectedChem?.primary_count || 0}
+          value={transferQty}
+          onChange={val => setTransferQty(val || 1)}
+        />
+        <Select
+          label="From (Primary Storage)"
+          data={primaryLocations.map(l => ({ value: l.id.toString(), label: l.name }))}
+          value={transferFrom?.toString()}
+          onChange={val => setTransferFrom(val ? parseInt(val) : null)}
+          disabled={primaryLocations.length === 1}
+          mt="sm"
+        />
+        <Select
+          label="To (Sub‑storage)"
+          data={subLocations.map(l => ({ value: l.id.toString(), label: l.name }))}
+          value={transferTo?.toString()}
+          onChange={val => setTransferTo(val ? parseInt(val) : null)}
+          mt="sm"
+        />
+        <Button fullWidth mt="xl" loading={transferLoading} disabled={!transferFrom || !transferTo || transferQty < 1} onClick={executeTransfer}>
+          Transfer Bottles
+        </Button>
       </Modal>
     </>
   );
