@@ -1,6 +1,7 @@
 const cron = require('node-cron');
 const db = require('../config/db');
 const { sendMail } = require('../services/mailer');
+const { createExpiryAlerts } = require('../services/alertService'); // NEW
 
 async function runDailyChecks() {
   console.log('[ALERTS] Running daily checks...');
@@ -19,8 +20,7 @@ async function runDailyChecks() {
       HAVING COUNT(b.id) <= c.reorder_threshold
     `);
 
-    // 2. Broken equipment (using utility_items now, but we still check the old equipment table? 
-    //    We'll unify later – for now let's use utility_items)
+    // 2. Broken equipment (using utility_items now)
     const brokenEquipment = await db('utility_items')
       .where({ status: 'broken', is_deleted: false })
       .select('id', 'name', 'location_id', 'org_serial');
@@ -31,6 +31,19 @@ async function runDailyChecks() {
       .where('expiration_date', '<=', db.raw("CURRENT_DATE + INTERVAL '30 days'"))
       .where('expiration_date', '>=', db.raw('CURRENT_DATE'))
       .select('id', 'name', 'expiration_date', 'license_type');
+
+    // 4. Expiring chemicals (NEW)
+    const expiringContainers = await db('chemical_containers')
+      .join('locations', 'chemical_containers.location_id', 'locations.id')
+      .where('chemical_containers.is_deleted', false)
+      .whereNotNull('chemical_containers.expiry_date')
+      .where('chemical_containers.expiry_date', '<=', db.raw("CURRENT_DATE + INTERVAL '30 days'"))
+      .where('chemical_containers.expiry_date', '>=', db.raw('CURRENT_DATE'))
+      .select('chemical_containers.*', 'locations.lab_id');
+
+    for (const cont of expiringContainers) {
+      await createExpiryAlerts(cont);
+    }
 
     // Helper: insert alert if no unread alert for this user+reference exists
     async function createAlertIfNew(userId, type, message, refType, refId) {

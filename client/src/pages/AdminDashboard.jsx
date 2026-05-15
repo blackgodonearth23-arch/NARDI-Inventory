@@ -16,7 +16,7 @@ export default function AdminDashboard() {
     hardware: 0,
     licenses: 0,
     lowStockCount: 0,
-    brokenEquipment: 0,
+    brokenItems: 0,
   });
   const [expiringLicenses, setExpiringLicenses] = useState([]);
 
@@ -38,7 +38,7 @@ export default function AdminDashboard() {
           api.get('/ict/hardware'),
           api.get('/ict/licenses'),
           api.get('/reports/restock-list'),
-          api.get('/ict/hardware', { params: { status: 'under_repair' } }),
+          api.get('/utilities', { params: { status: 'broken' } }),   // CHANGED
         ]);
 
         const lowStockItems = lowStockRes.data || [];
@@ -51,7 +51,7 @@ export default function AdminDashboard() {
           hardware: hardwareRes.data.length,
           licenses: licensesRes.data.length,
           lowStockCount: lowStockItems.length,
-          brokenEquipment: brokenItems.length,
+          brokenItems: brokenItems.length,   // now counts ALL broken utilities
         });
 
         const soon = licensesRes.data.filter(lic => {
@@ -78,7 +78,7 @@ export default function AdminDashboard() {
         <StatCard icon={<IconDeviceDesktop size={24} />} label="Hardware Assets" value={stats.hardware} />
         <StatCard icon={<IconLicense size={24} />} label="Software Licenses" value={stats.licenses} />
         <StatCard icon={<IconAlertTriangle size={24} />} color="red" label="Low Stock Items" value={stats.lowStockCount} />
-        <StatCard icon={<IconAlertTriangle size={24} />} color="orange" label="Broken Equipment" value={stats.brokenEquipment} />
+        <StatCard icon={<IconAlertTriangle size={24} />} color="orange" label="Broken Items" value={stats.brokenItems} />
       </SimpleGrid>
 
       {expiringLicenses.length > 0 && (

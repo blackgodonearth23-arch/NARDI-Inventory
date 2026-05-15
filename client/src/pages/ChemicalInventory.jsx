@@ -38,7 +38,8 @@ export default function ChemicalInventory() {
   const [bottleForm, setBottleForm] = useState({
     quantity: 1, location_id: null,
     container_type: 'glass_bottle', container_type_custom: '',
-    container_size: '', container_unit: 'ml'
+    container_size: '', container_unit: 'ml',
+    expiry_date: ''   // NEW
   });
   const [addingBottles, setAddingBottles] = useState(false);
   const [openPin, setOpenPin] = useState('');
@@ -144,7 +145,8 @@ export default function ChemicalInventory() {
         location_id: bottleForm.location_id,
         container_type: containerType,
         container_size: bottleForm.container_size ? parseFloat(bottleForm.container_size) : null,
-        container_unit: bottleForm.container_unit || 'ml'
+        container_unit: bottleForm.container_unit || 'ml',
+        expiry_date: bottleForm.expiry_date || null   // NEW
       });
       showNotification({ color: 'green', title: `${bottleForm.quantity} bottle(s) added` });
       setAddBottleOpen(false);
@@ -271,7 +273,7 @@ export default function ChemicalInventory() {
       <Modal opened={bottleModalOpen} onClose={() => setBottleModalOpen(false)} title={`Bottles for ${selectedChem?.name}`} size="lg">
         <Group mb="sm">
           <Button leftSection={<IconPlus size={16} />} onClick={() => {
-            setBottleForm({ quantity: 1, location_id: null, container_type: 'glass_bottle', container_type_custom: '', container_size: '', container_unit: 'ml' });
+            setBottleForm({ quantity: 1, location_id: null, container_type: 'glass_bottle', container_type_custom: '', container_size: '', container_unit: 'ml', expiry_date: '' });
             setAddBottleOpen(true);
           }}>Add Bottles</Button>
         </Group>
@@ -324,6 +326,14 @@ export default function ChemicalInventory() {
             data={UNITS}
             value={bottleForm.container_unit}
             onChange={val => setBottleForm({...bottleForm, container_unit: val})}
+          />
+          {/* NEW: Expiry Date */}
+          <TextInput
+            type="date"
+            label="Expiry Date"
+            mt="sm"
+            value={bottleForm.expiry_date}
+            onChange={(e) => setBottleForm({ ...bottleForm, expiry_date: e.currentTarget.value })}
           />
           <Button mt="md" fullWidth loading={addingBottles} disabled={!bottleForm.location_id} onClick={addBottles}>Add</Button>
         </Modal>
