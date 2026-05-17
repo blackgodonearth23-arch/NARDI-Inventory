@@ -4,7 +4,7 @@ const cors = require('cors');
 const helmet = require('helmet');
 const morgan = require('morgan');
 const rateLimit = require('express-rate-limit');
-
+const path = require('path');
 const authRoutes = require('./routes/auth');
 const chemicalRoutes = require('./routes/chemicals');
 const transferRoutes = require('./routes/transfers');
@@ -59,6 +59,7 @@ app.use('/api/alerts', alertRoutes);
 app.use('/api/reports', reportRoutes);
 app.use('/api/audits', auditRoutes);
 
+app.use('/pdfs', express.static(path.join(__dirname, 'public', 'pdfs')));
 
 // Health check
 app.get('/api/health', (req, res) => {

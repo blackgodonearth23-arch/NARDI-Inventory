@@ -1,103 +1,100 @@
-import { useState, useEffect } from 'react';
+// client/src/pages/UtilityList.jsx
+import { useState, useEffect, useMemo } from 'react';
 import {
   Title, Paper, Table, Button, Group, Badge, Modal, TextInput, Select,
-  NumberInput, ActionIcon, Text, Alert, Grid, Menu
+  NumberInput, ActionIcon, Text, Alert, Grid, Menu, Checkbox, Accordion
 } from '@mantine/core';
 import { IconPlus, IconEdit, IconTrash, IconDots } from '@tabler/icons-react';
 import { showNotification } from '@mantine/notifications';
 import api from '../api/axios';
 import { useAuth } from '../context/AuthContext';
 
-const UTILITY_TYPES = [
-  'glassware', 'plasticware', 'equipment', 'instrument',
-  'standard', 'consumable_sanitation', 'ppe', 'utensil'
+const CALIBRATION_INTERVALS = [
+  { value: '30', label: '30 days' },
+  { value: '90', label: '90 days' },
+  { value: '180', label: '6 months' },
+  { value: '365', label: '1 year' },
+  { value: '730', label: '2 years' },
+  { value: 'custom', label: 'Custom' },
 ];
 
-const TYPE_PROPERTIES = {
-  glassware: [
-    { key: 'material', label: 'Material' },
-    { key: 'volume_ml', label: 'Volume (ml)' },
-  ],
-  instrument: [
-    { key: 'model', label: 'Model' },
-    { key: 'calibration_date', label: 'Calibration Date' },
-  ],
-  standard: [
-    { key: 'iso_number', label: 'ISO Number' },
-    { key: 'expiry_date', label: 'Expiry Date' },
-  ],
-  ppe: [
-    { key: 'size', label: 'Size' },
-    { key: 'material', label: 'Material' },
-  ],
-  equipment: [
-    { key: 'serial', label: 'Serial Number' },
-    { key: 'manufacturer', label: 'Manufacturer' },
-  ],
-};
-
-// Types that need a unique asset ID
-const TYPES_WITH_ASSET_ID = ['equipment', 'instrument'];
-
-function getTypeProperties(type) {
-  return TYPE_PROPERTIES[type] || [];
-}
+const TYPES_WITH_ASSET_ID = ['equipment'];
 
 export default function UtilityList() {
   const { user } = useAuth();
+  const isAdmin = user?.role === 'admin';
+  const isLabKeeper = user?.role === 'lab_keeper';
+  const labId = isLabKeeper ? user?.lab_id : null;
+
+  const [allowedTypes, setAllowedTypes] = useState([]);
+  const [typeFields, setTypeFields] = useState({});
+
   const [items, setItems] = useState([]);
-  const [locations, setLocations] = useState([]);
   const [labs, setLabs] = useState([]);
   const [filterType, setFilterType] = useState('');
   const [filterStatus, setFilterStatus] = useState('');
+  const [filterLabId, setFilterLabId] = useState(isAdmin ? '' : labId);
 
   const [modalOpen, setModalOpen] = useState(false);
   const [editingItem, setEditingItem] = useState(null);
-  const [form, setForm] = useState({
-    asset_id: '', name: '', type: 'equipment', location_id: null,
-    lab_id: user.role === 'lab_keeper' ? user.lab_id : '',
-    total_count: 1, status: 'working', properties: {}
-  });
+  const [form, setForm] = useState(getEmptyForm());
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
+  const [hasExpiry, setHasExpiry] = useState(false);
+
+  useEffect(() => {
+    if (isAdmin) {
+      api.get('/labs').then(res => setLabs(res.data)).catch(console.error);
+    }
+    if (labId || filterLabId) {
+      fetchLabConfig();
+    }
+  }, [labId, filterLabId]);
+
   useEffect(() => {
     fetchItems();
-    fetchLocations();
-    if (user.role === 'admin') fetchLabs();
-  }, [filterType, filterStatus]);
+  }, [filterType, filterStatus, filterLabId, allowedTypes]);
 
-  const fetchItems = async () => {
+  function getEmptyForm() {
+    const activeLab = isAdmin ? filterLabId : labId;
+    return {
+      asset_id: '',
+      name: '',
+      type: allowedTypes[0] || '',
+      lab_id: activeLab || '',
+      total_count: 1,
+      status: 'working',
+      expiry_date: '',
+      properties: {}
+    };
+  }
+
+  async function fetchLabConfig() {
+    try {
+      const targetLab = isAdmin ? filterLabId : labId;
+      if (!targetLab) return;
+      const { data } = await api.get(`/labs/${targetLab}`);
+      setAllowedTypes(data.allowed_utility_types || []);
+      setTypeFields(data.type_fields || {});
+    } catch (err) { console.error(err); }
+  }
+
+  async function fetchItems() {
     try {
       const params = {};
       if (filterType) params.type = filterType;
       if (filterStatus) params.status = filterStatus;
+      if (isAdmin && filterLabId) params.lab_id = filterLabId;
       const res = await api.get('/utilities', { params });
       setItems(res.data);
     } catch (err) { console.error(err); }
-  };
-
-  const fetchLocations = async () => {
-    try {
-      const res = await api.get('/locations');
-      setLocations(res.data || []);
-    } catch (err) { console.error(err); }
-  };
-
-  const fetchLabs = async () => {
-    try {
-      const res = await api.get('/labs');
-      setLabs(res.data);
-    } catch (err) { console.error(err); }
-  };
+  }
 
   const openAdd = () => {
     setEditingItem(null);
-    setForm({
-      asset_id: '', name: '', type: 'equipment', location_id: null,
-      lab_id: user.role === 'lab_keeper' ? user.lab_id : '',
-      total_count: 1, status: 'working', properties: {}
-    });
+    setForm(getEmptyForm());
+    setHasExpiry(false);
     setModalOpen(true);
   };
 
@@ -107,12 +104,13 @@ export default function UtilityList() {
       asset_id: item.asset_id || '',
       name: item.name,
       type: item.type,
-      location_id: item.location_id || null,
       lab_id: item.lab_id,
       total_count: item.total_count || 1,
       status: item.status,
+      expiry_date: item.expiry_date || '',
       properties: item.properties || {}
     });
+    setHasExpiry(!!item.expiry_date);
     setModalOpen(true);
   };
 
@@ -120,12 +118,29 @@ export default function UtilityList() {
     setSaving(true);
     setError('');
     try {
-      // If type doesn't need asset_id, set it to null
-      const payload = { ...form };
-      if (!TYPES_WITH_ASSET_ID.includes(payload.type)) {
+      const payload = {
+        name: form.name,
+        type: form.type,
+        lab_id: form.lab_id,
+        total_count: form.total_count,
+        status: form.status,
+        expiry_date: hasExpiry ? (form.expiry_date || null) : null,
+        properties: form.properties || {}
+      };
+      // Include asset_id only for equipment type
+      if (TYPES_WITH_ASSET_ID.includes(form.type)) {
+        payload.asset_id = form.asset_id || null;
+        if (!payload.asset_id) {
+          setError('Asset ID is required for equipment.');
+          setSaving(false);
+          return;
+        }
+      } else {
         payload.asset_id = null;
-      } else if (!payload.asset_id) {
-        setError('Asset ID is required for this type.');
+      }
+
+      if (!payload.lab_id) {
+        setError('Lab ID is missing.');
         setSaving(false);
         return;
       }
@@ -135,165 +150,316 @@ export default function UtilityList() {
       } else {
         await api.post('/utilities', payload);
       }
-      showNotification({ color: 'green', title: 'Utility saved' });
+      showNotification({ color: 'green', title: 'Item saved' });
       setModalOpen(false);
       fetchItems();
     } catch (err) {
-      const msg = err.response?.data?.error || 'Save failed';
-      setError(msg);
+      setError(err.response?.data?.error || 'Save failed');
     } finally { setSaving(false); }
   };
 
   const handleDelete = async (id) => {
-    if (!window.confirm('Delete this utility?')) return;
+    if (!window.confirm('Delete this item?')) return;
     await api.delete(`/utilities/${id}`);
     fetchItems();
   };
 
-  const extraFields = getTypeProperties(form.type);
+  // Calibration handlers
+  const handleCalibrationCheck = (checked) => {
+    const newProps = { ...form.properties, needs_calibration: checked };
+    if (!checked) {
+      delete newProps.calibration_date;
+      delete newProps.calibration_interval_days;
+    }
+    setForm({ ...form, properties: newProps });
+  };
+
+  const handleCalibrationIntervalChange = (val) => {
+    if (val === 'custom') {
+      setForm({
+        ...form,
+        properties: { ...form.properties, calibration_interval_days: '' }
+      });
+    } else {
+      setForm({
+        ...form,
+        properties: { ...form.properties, calibration_interval_days: parseInt(val) }
+      });
+    }
+  };
+
+  const handleHasExpiryChange = (checked) => {
+    setHasExpiry(checked);
+    if (!checked) {
+      setForm(prev => ({ ...prev, expiry_date: '' }));
+    }
+  };
+
+  const visibleCustomFields = useMemo(() => {
+    const all = typeFields[form.type] || [];
+    if (form.type === 'instrument') {
+      return all.filter(
+        f => !['needs_calibration', 'calibration_date', 'calibration_interval_days'].includes(f.name)
+      );
+    }
+    return all;
+  }, [form.type, typeFields]);
+
+  const groupedItems = useMemo(() => {
+    const groups = {};
+    items.forEach(item => {
+      if (!groups[item.type]) groups[item.type] = [];
+      groups[item.type].push(item);
+    });
+    return groups;
+  }, [items]);
 
   return (
     <>
-      <Title order={2} mb="lg">Utilities</Title>
+      <Group justify="space-between" mb="lg">
+        <Title order={2}>Consumable Inventory</Title>
+        <Button leftSection={<IconPlus size={16} />} onClick={openAdd} disabled={isAdmin && !filterLabId}>
+          Add Item
+        </Button>
+      </Group>
+
       <Group mb="md">
+        {isAdmin && (
+          <Select
+            placeholder="Filter by lab"
+            data={labs.map(l => ({ value: String(l.id), label: l.name }))}
+            value={filterLabId ? String(filterLabId) : null}
+            onChange={val => setFilterLabId(val ? parseInt(val) : '')}
+            clearable
+          />
+        )}
         <Select
           placeholder="Filter by type"
-          data={UTILITY_TYPES.map(t => ({ value: t, label: t.replace('_',' ') }))}
+          data={allowedTypes.map(t => ({ value: t, label: t }))}
           value={filterType}
           onChange={setFilterType}
           clearable
         />
         <Select
           placeholder="Filter by status"
-          data={['working','broken','under_repair']}
+          data={['working', 'broken', 'under_repair']}
           value={filterStatus}
           onChange={setFilterStatus}
           clearable
         />
-        <Button leftSection={<IconPlus size={16} />} onClick={openAdd}>Add Utility</Button>
       </Group>
 
       {error && <Alert color="red" mb="md">{error}</Alert>}
 
-      <Paper withBorder>
-        <Table striped>
-          <thead>
-            <tr>
-              <th>Asset ID</th>
-              <th>Name</th>
-              <th>Type</th>
-              <th>Status</th>
-              <th>Lab</th>
-              <th>Location</th>
-              <th style={{ width: 100 }}>Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {items.map(item => (
-              <tr key={item.id}>
-                <td>{item.asset_id || '—'}</td>
-                <td>{item.name}</td>
-                <td><Badge>{item.type}</Badge></td>
-                <td>
-                  <Badge color={item.status === 'working' ? 'green' : item.status === 'broken' ? 'red' : 'yellow'}>
-                    {item.status}
-                  </Badge>
-                </td>
-                <td>{item.lab_name || '—'}</td>
-                <td>{item.location_name || '—'}</td>
-                <td>
-                  <Menu shadow="md" width={150}>
-                    <Menu.Target>
-                      <ActionIcon variant="default">
-                        <IconDots size={16} />
-                      </ActionIcon>
-                    </Menu.Target>
-                    <Menu.Dropdown>
-                      <Menu.Item leftSection={<IconEdit size={16} />} onClick={() => openEdit(item)}>
-                        Edit
-                      </Menu.Item>
-                      <Menu.Item leftSection={<IconTrash size={16} />} color="red" onClick={() => handleDelete(item.id)}>
-                        Delete
-                      </Menu.Item>
-                    </Menu.Dropdown>
-                  </Menu>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </Table>
-      </Paper>
+      <Accordion defaultValue={allowedTypes[0]}>
+        {allowedTypes.map(type => (
+          <Accordion.Item key={type} value={type}>
+            <Accordion.Control>
+              <Group>
+                <Text weight={500}>{type}</Text>
+                <Badge>{(groupedItems[type] || []).length} items</Badge>
+              </Group>
+            </Accordion.Control>
+            <Accordion.Panel>
+              <Paper withBorder>
+                <Table striped>
+                  <thead>
+                    <tr>
+                      <th>Asset ID</th>
+                      <th>Name</th>
+                      <th>Quantity</th>
+                      <th>Status</th>
+                      <th>Expiry</th>
+                      {(typeFields[type] || []).map(f => (
+                        <th key={f.name}>{f.label}</th>
+                      ))}
+                      <th style={{ width: 100 }}>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(groupedItems[type] || []).map(item => (
+                      <tr key={item.id}>
+                        <td>{item.asset_id || '—'}</td>
+                        <td>{item.name}</td>
+                        <td>{item.total_count}</td>
+                        <td>
+                          <Badge color={item.status === 'working' ? 'green' : item.status === 'broken' ? 'red' : 'yellow'}>
+                            {item.status}
+                          </Badge>
+                        </td>
+                        <td>{item.expiry_date ? item.expiry_date.slice(0, 10) : '—'}</td>
+                        {(typeFields[type] || []).map(f => (
+                          <td key={f.name}>
+                            {item.properties?.[f.name] !== undefined ? String(item.properties[f.name]) : '—'}
+                          </td>
+                        ))}
+                        <td>
+                          <Menu>
+                            <Menu.Target><ActionIcon><IconDots size={16} /></ActionIcon></Menu.Target>
+                            <Menu.Dropdown>
+                              <Menu.Item icon={<IconEdit size={16} />} onClick={() => openEdit(item)}>Edit</Menu.Item>
+                              <Menu.Item icon={<IconTrash size={16} />} color="red" onClick={() => handleDelete(item.id)}>Delete</Menu.Item>
+                            </Menu.Dropdown>
+                          </Menu>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </Table>
+              </Paper>
+            </Accordion.Panel>
+          </Accordion.Item>
+        ))}
+      </Accordion>
 
-      <Modal opened={modalOpen} onClose={() => setModalOpen(false)} title={editingItem ? 'Edit Utility' : 'Add Utility'} size="lg">
+      {/* Add / Edit Modal */}
+      <Modal opened={modalOpen} onClose={() => setModalOpen(false)} title={editingItem ? 'Edit Item' : 'Add Consumable'} size="lg">
         <Grid>
-          {/* Asset ID – only shown for types that need it */}
+          {/* Asset ID – only for equipment */}
           {TYPES_WITH_ASSET_ID.includes(form.type) && (
             <Grid.Col span={6}>
-              <TextInput label="Asset ID" value={form.asset_id} onChange={e => setForm({...form, asset_id: e.target.value})} required />
-            </Grid.Col>
-          )}
-          <Grid.Col span={6}>
-            <TextInput label="Name" value={form.name} onChange={e => setForm({...form, name: e.target.value})} required />
-          </Grid.Col>
-          <Grid.Col span={6}>
-            <Select
-              label="Type"
-              data={UTILITY_TYPES.map(t => ({ value: t, label: t.replace('_',' ') }))}
-              value={form.type}
-              onChange={val => setForm({...form, type: val, properties: {}})}
-            />
-          </Grid.Col>
-          <Grid.Col span={6}>
-            <Select
-              label="Status"
-              data={['working','broken','under_repair']}
-              value={form.status}
-              onChange={val => setForm({...form, status: val})}
-            />
-          </Grid.Col>
-          {user.role === 'admin' && (
-            <Grid.Col span={6}>
-              <Select
-                label="Lab"
-                data={labs.map(l => ({ value: l.id.toString(), label: l.name }))}
-                value={form.lab_id?.toString()}
-                onChange={val => setForm({...form, lab_id: parseInt(val)})}
+              <TextInput
+                label="Asset ID"
+                value={form.asset_id}
+                onChange={e => setForm({ ...form, asset_id: e.currentTarget.value })}
                 required
               />
             </Grid.Col>
           )}
-          {user.role === 'lab_keeper' && (
-            <Grid.Col span={6}>
-              <TextInput
-                label="Lab"
-                value={labs.find(l => l.id === user.lab_id)?.name || 'Your Lab'}
-                disabled
-              />
-            </Grid.Col>
-          )}
+          <Grid.Col span={6}>
+            <TextInput label="Name" value={form.name} onChange={e => setForm({ ...form, name: e.currentTarget.value })} required />
+          </Grid.Col>
           <Grid.Col span={6}>
             <Select
-              label="Location (optional)"
-              data={locations.map(l => ({ value: l.id.toString(), label: l.name }))}
-              value={form.location_id?.toString()}
-              onChange={val => setForm({...form, location_id: val ? parseInt(val) : null})}
-              clearable
+              label="Type"
+              data={allowedTypes.map(t => ({ value: t, label: t }))}
+              value={form.type}
+              onChange={val => setForm({ ...form, type: val, properties: {} })}
             />
           </Grid.Col>
           <Grid.Col span={3}>
-            <NumberInput label="Count" min={1} value={form.total_count} onChange={val => setForm({...form, total_count: val || 1})} />
+            <NumberInput label="Quantity" min={1} value={form.total_count} onChange={val => setForm({ ...form, total_count: val || 1 })} />
           </Grid.Col>
-          {extraFields.map(field => (
-            <Grid.Col key={field.key} span={6}>
+          <Grid.Col span={3}>
+            <Select
+              label="Status"
+              data={['working', 'broken', 'under_repair']}
+              value={form.status}
+              onChange={val => setForm({ ...form, status: val })}
+            />
+          </Grid.Col>
+
+          {/* Expiry checkbox + date input */}
+          <Grid.Col span={12}>
+            <Checkbox
+              label="Has Expiry Date"
+              checked={hasExpiry}
+              onChange={(e) => handleHasExpiryChange(e.currentTarget.checked)}
+            />
+          </Grid.Col>
+          {hasExpiry && (
+            <Grid.Col span={6}>
               <TextInput
-                label={field.label}
-                value={form.properties[field.key] || ''}
-                onChange={e => setForm({...form, properties: {...form.properties, [field.key]: e.target.value}})}
+                label="Expiry Date"
+                type="date"
+                value={form.expiry_date || ''}
+                onChange={e => setForm({ ...form, expiry_date: e.currentTarget.value })}
+                placeholder="YYYY-MM-DD"
               />
+            </Grid.Col>
+          )}
+
+          {/* Calibration section – only for instrument type */}
+          {form.type === 'instrument' && (
+            <>
+              <Grid.Col span={12}>
+                <Checkbox
+                  label="Requires Calibration"
+                  checked={!!form.properties.needs_calibration}
+                  onChange={(e) => handleCalibrationCheck(e.currentTarget.checked)}
+                />
+              </Grid.Col>
+              {form.properties.needs_calibration && (
+                <>
+                  <Grid.Col span={6}>
+                    <Select
+                      label="Calibration Interval"
+                      data={CALIBRATION_INTERVALS}
+                      value={
+                        form.properties.calibration_interval_days
+                          ? String(form.properties.calibration_interval_days)
+                          : 'custom'
+                      }
+                      onChange={handleCalibrationIntervalChange}
+                    />
+                    {(!CALIBRATION_INTERVALS.map(i => i.value).includes(
+                      String(form.properties.calibration_interval_days || '')
+                    )) && (
+                      <NumberInput
+                        mt="xs"
+                        placeholder="Custom days"
+                        value={form.properties.calibration_interval_days || ''}
+                        onChange={val => setForm({
+                          ...form,
+                          properties: { ...form.properties, calibration_interval_days: val }
+                        })}
+                      />
+                    )}
+                  </Grid.Col>
+                  <Grid.Col span={6}>
+                    <TextInput
+                      label="Last Calibration Date"
+                      type="date"
+                      value={form.properties.calibration_date || ''}
+                      onChange={e => setForm({
+                        ...form,
+                        properties: { ...form.properties, calibration_date: e.currentTarget.value }
+                      })}
+                      placeholder="YYYY-MM-DD"
+                    />
+                  </Grid.Col>
+                </>
+              )}
+            </>
+          )}
+
+          {/* Dynamic custom fields */}
+          {visibleCustomFields.map(field => (
+            <Grid.Col key={field.name} span={6}>
+              {field.type === 'text' && (
+                <TextInput
+                  label={field.label}
+                  value={form.properties[field.name] || ''}
+                  onChange={e => setForm({ ...form, properties: { ...form.properties, [field.name]: e.currentTarget.value } })}
+                />
+              )}
+              {field.type === 'number' && (
+                <NumberInput
+                  label={field.label}
+                  value={form.properties[field.name] ?? ''}
+                  onChange={val => setForm({ ...form, properties: { ...form.properties, [field.name]: val } })}
+                />
+              )}
+              {field.type === 'date' && (
+                <TextInput
+                  label={field.label}
+                  type="date"
+                  value={form.properties[field.name] || ''}
+                  onChange={e => setForm({ ...form, properties: { ...form.properties, [field.name]: e.currentTarget.value } })}
+                  placeholder="YYYY-MM-DD"
+                />
+              )}
+              {field.type === 'boolean' && (
+                <Checkbox
+                  label={field.label}
+                  checked={!!form.properties[field.name]}
+                  onChange={e => setForm({ ...form, properties: { ...form.properties, [field.name]: e.currentTarget.checked } })}
+                />
+              )}
             </Grid.Col>
           ))}
         </Grid>
-        <Button fullWidth mt="xl" loading={saving} disabled={saving || !form.name} onClick={handleSave}>
+        <Button fullWidth mt="xl" loading={saving} onClick={handleSave}>
           {editingItem ? 'Update' : 'Create'}
         </Button>
       </Modal>

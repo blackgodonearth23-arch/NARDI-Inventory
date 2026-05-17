@@ -21,7 +21,7 @@ import AlertsList from './pages/AlertsList';
 import Reports from './pages/Reports';
 import UtilityList from './pages/UtilityList';
 import EmployeeAssignments from './pages/EmployeeAssignments';
-
+import BottleInventory from './pages/BottleInventory';          // <-- NEW
 
 function PrivateRoute({ children }) {
   const { user, loading } = useAuth();
@@ -50,6 +50,9 @@ function AppRoutes() {
         <Route path="utilities" element={<UtilityList />} />
         <Route path="dashboard" element={<DashboardRouter />} />
         <Route path="ict-assignments" element={<EmployeeAssignments />} />
+        <Route path="bottles" element={<BottleInventory />} />   {/* NEW */}
+        {/* for QR code redirect, we need a route that handles /chemicals/open */}
+        <Route path="chemicals/open" element={<PrivateRoute><OpenBottle /></PrivateRoute>} />
       </Route>
     </Routes>
   );

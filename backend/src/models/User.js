@@ -68,6 +68,11 @@ async update(id, fields) {
   await db('users').where({ id }).update(data);
 },
 
+async updatePin(userId, newPin) {
+  const hashed = await bcrypt.hash(newPin, 10);
+  return db('users').where({ id: userId }).update({ pin_4: newPin });
+},
+
 async deactivate(id) {
   return db('users').where({ id }).update({ is_active: false, updated_at: db.fn.now() });
 }

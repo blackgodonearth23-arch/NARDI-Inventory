@@ -1,13 +1,15 @@
+// backend/src/routes/auth.js
 const express = require('express');
 const router = express.Router();
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const Joi = require('joi');
 const User = require('../models/User');
+const Lab = require('../models/Lab');
 const validate = require('../middleware/validate');
-const { authenticate } = require('../middleware/auth');
+const { authenticate, authorize } = require('../middleware/auth');
 
-// --- Schemas ---
+// --- Schemas (unchanged) ---
 const registerSchema = Joi.object({
   email: Joi.string().email({ tlds: { allow: false } }).required(),
   password: Joi.string().min(6).max(100).required(),
@@ -32,7 +34,7 @@ const refreshSchema = Joi.object({
   refreshToken: Joi.string().required()
 });
 
-// --- Helper: generate tokens ---
+// --- Token generation ---
 function generateTokens(user) {
   const payload = { id: user.id, email: user.email, role: user.role, lab_id: user.lab_id };
   const accessToken = jwt.sign(payload, process.env.JWT_ACCESS_SECRET, {
@@ -42,6 +44,23 @@ function generateTokens(user) {
     expiresIn: process.env.JWT_REFRESH_EXPIRES
   });
   return { accessToken, refreshToken };
+}
+
+// --- Enrich user with lab details ---
+async function buildUserResponse(user) {
+  let lab = null;
+  if (user.lab_id) {
+    lab = await Lab.findById(user.lab_id);
+  }
+  return {
+    id: user.id,
+    email: user.email,
+    display_name: user.display_name,
+    role: user.role,
+    lab_id: user.lab_id,
+    lab_type: lab ? lab.type : null,
+    allowed_utility_types: lab ? lab.allowed_utility_types : null
+  };
 }
 
 // --- Register ---
@@ -54,10 +73,8 @@ router.post('/register', validate(registerSchema), async (req, res) => {
 
     const user = await User.create({ email, password, display_name, role, lab_id, pin_4 });
     const tokens = generateTokens(user);
-    res.status(201).json({
-      user: { id: user.id, email: user.email, role: user.role, lab_id: user.lab_id },
-      ...tokens
-    });
+    const userObj = await buildUserResponse(user);
+    res.status(201).json({ user: userObj, ...tokens });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Registration failed' });
@@ -75,10 +92,8 @@ router.post('/login', validate(loginSchema), async (req, res) => {
     if (!validPw) return res.status(401).json({ error: 'Invalid credentials' });
 
     const tokens = generateTokens(user);
-    res.json({
-      user: { id: user.id, email: user.email, role: user.role, lab_id: user.lab_id },
-      ...tokens
-    });
+    const userObj = await buildUserResponse(user);
+    res.json({ user: userObj, ...tokens });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Login failed' });
@@ -94,10 +109,23 @@ router.post('/pin', validate(pinLoginSchema), async (req, res) => {
 
     const payload = { id: user.id, email: user.email, role: user.role, lab_id: user.lab_id };
     const accessToken = jwt.sign(payload, process.env.JWT_ACCESS_SECRET, { expiresIn: '5m' });
-    res.json({ accessToken, user: { id: user.id, display_name: user.display_name, lab_id: user.lab_id } });
+    const userObj = await buildUserResponse(user);
+    res.json({ accessToken, user: userObj });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'PIN login failed' });
+  }
+});
+
+router.put('/pin', authenticate, authorize('lab_user'), async (req, res) => {
+  const { newPin } = req.body;
+  if (!/^\d{4}$/.test(newPin)) return res.status(400).json({ error: 'PIN must be 4 digits' });
+  try {
+    await User.updatePin(req.user.id, newPin);
+    res.json({ message: 'PIN updated' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to update PIN' });
   }
 });
 
@@ -110,9 +138,22 @@ router.post('/refresh', validate(refreshSchema), async (req, res) => {
     if (!user) return res.status(401).json({ error: 'User not found or deactivated' });
 
     const tokens = generateTokens(user);
-    res.json(tokens);
+    res.json(tokens);   // only tokens; client can re‑fetch user via /me
   } catch (err) {
     res.status(401).json({ error: 'Invalid or expired refresh token' });
+  }
+});
+
+// --- Current User (for client startup) ---
+router.get('/me', authenticate, async (req, res) => {
+  try {
+    const user = await User.findById(req.user.id);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    const userObj = await buildUserResponse(user);
+    res.json(userObj);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to fetch user' });
   }
 });
 

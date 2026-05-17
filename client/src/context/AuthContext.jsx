@@ -1,3 +1,4 @@
+// client/src/context/AuthContext.jsx
 import { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import api from '../api/axios';
 
@@ -7,23 +8,23 @@ export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
 
+  // On mount, if a token exists, fetch the full user object from /auth/me
   useEffect(() => {
     const token = localStorage.getItem('accessToken');
     if (token) {
-      try {
-        const payload = JSON.parse(atob(token.split('.')[1]));
-        setUser({
-          id: payload.id,
-          email: payload.email,
-          role: payload.role,
-          lab_id: payload.lab_id
-        });
-      } catch (e) {
-        localStorage.removeItem('accessToken');
-        localStorage.removeItem('refreshToken');
-      }
+      api.get('/auth/me')
+        .then(({ data }) => {
+          setUser(data);
+        })
+        .catch(() => {
+          // Token invalid or expired – clear storage
+          localStorage.removeItem('accessToken');
+          localStorage.removeItem('refreshToken');
+        })
+        .finally(() => setLoading(false));
+    } else {
+      setLoading(false);
     }
-    setLoading(false);
   }, []);
 
   const login = useCallback(async (email, password) => {

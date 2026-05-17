@@ -1,5 +1,6 @@
+// client/src/components/Login.jsx
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { TextInput, PasswordInput, Button, Paper, Title, Container, Alert } from '@mantine/core';
 import { useAuth } from '../context/AuthContext';
 
@@ -9,13 +10,15 @@ export default function Login() {
   const [error, setError] = useState('');
   const { login } = useAuth();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const returnUrl = searchParams.get('returnUrl') || '/dashboard';
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
     try {
       await login(email, password);
-      navigate('/dashboard');
+      navigate(returnUrl, { replace: true });
     } catch (err) {
       setError(err.response?.data?.error || 'Login failed');
     }

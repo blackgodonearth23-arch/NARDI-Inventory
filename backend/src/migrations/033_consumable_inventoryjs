@@ -1,0 +1,38 @@
+// backend/src/migrations/033_consumable_inventory.js
+
+exports.up = async function(knex) {
+  // 1. Add new columns to utility_items
+  await knex.schema.alterTable('utility_items', (table) => {
+    table.string('container_type', 100).notNullable().defaultTo('bottle');
+    table.string('size', 50).nullable();
+    table.date('expiry_date').nullable();
+    table.string('batch_number', 100).nullable();
+    table.text('notes').nullable();
+    table.integer('parent_id').unsigned().nullable()
+      .references('id').inTable('utility_items')
+      .onDelete('SET NULL');
+  });
+
+  // 2. Drop obsolete columns
+  await knex.schema.alterTable('utility_items', (table) => {
+    table.dropColumn('location_id');
+    table.dropColumn('properties');
+  });
+};
+
+exports.down = async function(knex) {
+  await knex.schema.alterTable('utility_items', (table) => {
+    table.integer('location_id').unsigned().nullable()
+      .references('id').inTable('locations');
+    table.jsonb('properties').defaultTo('{}');
+  });
+
+  await knex.schema.alterTable('utility_items', (table) => {
+    table.dropColumn('container_type');
+    table.dropColumn('size');
+    table.dropColumn('expiry_date');
+    table.dropColumn('batch_number');
+    table.dropColumn('notes');
+    table.dropColumn('parent_id');
+  });
+};

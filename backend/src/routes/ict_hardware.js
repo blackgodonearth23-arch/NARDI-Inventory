@@ -1,9 +1,10 @@
+// backend/src/routes/ictHardware.js
 const express = require('express');
 const router = express.Router();
 const Joi = require('joi');
 const ICTHardware = require('../models/ICTHardware');
 const validate = require('../middleware/validate');
-const { authenticate, authorize } = require('../middleware/auth');
+const { authenticate, authorize, requireLabType } = require('../middleware/auth');
 
 // Type specific details schema (depends on type)
 const detailsSchema = Joi.object({
@@ -61,8 +62,8 @@ const transferSchema = Joi.object({
   office_number: Joi.string().max(20).allow('').optional()
 });
 
-// All ICT keepers and admins have full access to ICT hardware
-const ictAuthorize = [authenticate, authorize('admin', 'ict_keeper')];
+// All ICT keepers and admins with ICT lab type (or admin) can access
+const ictAuthorize = [authenticate, authorize('admin', 'ict_keeper'), requireLabType('ICT')];
 
 router.get('/', ...ictAuthorize, async (req, res) => {
   try {
