@@ -21,7 +21,8 @@ import AlertsList from './pages/AlertsList';
 import Reports from './pages/Reports';
 import UtilityList from './pages/UtilityList';
 import EmployeeAssignments from './pages/EmployeeAssignments';
-import BottleInventory from './pages/BottleInventory';          // <-- NEW
+import BottleInventory from './pages/BottleInventory';       
+import OpenBottle from './pages/OpenBottle';
 
 function PrivateRoute({ children }) {
   const { user, loading } = useAuth();

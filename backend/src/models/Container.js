@@ -2,8 +2,126 @@ const db = require('../config/db');
 const QRCode = require('qrcode');
 
 const Container = {
-  // ... (keep existing methods: getByChemical, getByLocation, findById, findByPin, addContainers, getExpiringSoon)
+  // ─── Existing CRUD methods ──────────────────────────────────
+  async getByChemical(chemicalId, locationId = null) {
+    let query = db('chemical_containers')
+      .join('chemicals', 'chemical_containers.chemical_id', 'chemicals.id')
+      .where('chemical_containers.chemical_id', chemicalId)
+      .where('chemical_containers.is_deleted', false)
+      .select(
+        'chemical_containers.*',
+        'chemicals.name as chemical_name'
+      );
 
+    if (locationId) {
+      query = query.where('chemical_containers.location_id', locationId);
+    }
+
+    return query;
+  },
+
+  async getByLocation(locationId) {
+    return db('chemical_containers')
+      .join('chemicals', 'chemical_containers.chemical_id', 'chemicals.id')
+      .where('chemical_containers.location_id', locationId)
+      .where('chemical_containers.is_deleted', false)
+      .select(
+        'chemical_containers.*',
+        'chemicals.name as chemical_name'
+      );
+  },
+
+  async findById(id) {
+    return db('chemical_containers').where({ id, is_deleted: false }).first();
+  },
+
+  async findByPin(pin) {
+    return db('chemical_containers').where({ pin_5: pin, is_deleted: false }).first();
+  },
+
+  // ─── addContainers (with QR generation if baseUrl provided) ─
+  async addContainers(
+    chemicalId,
+    locationId,
+    count,
+    containerType = 'glass_bottle',
+    size = null,
+    unit = null,
+    generatePin = true,
+    expiryDate = null,
+    baseUrl = null       // optional – generates QR if given
+  ) {
+    const trx = await db.transaction();
+
+    try {
+      for (let i = 0; i < count; i++) {
+        let pin = null;
+        if (generatePin) {
+          let success = false;
+          let attempts = 0;
+          while (!success && attempts < 100) {
+            attempts++;
+            pin = String(Math.floor(10000 + Math.random() * 90000));
+            try {
+              const qrCodeDataUrl = baseUrl
+                ? await QRCode.toDataURL(`${baseUrl}/chemicals/open?pin=${pin}`)
+                : null;
+
+              await trx('chemical_containers').insert({
+                chemical_id: chemicalId,
+                pin_5: pin,
+                location_id: locationId,
+                status: 'unopened',
+                container_type: containerType,
+                container_size: size,
+                container_unit: unit,
+                expiry_date: expiryDate,
+                qr_code: qrCodeDataUrl,
+                is_deleted: false,
+              });
+              success = true;
+            } catch (err) {
+              if (err.code === '23505') continue;
+              throw err;
+            }
+          }
+          if (!success) throw new Error('Could not generate a unique PIN after 100 attempts');
+        } else {
+          // No PIN generation – still might generate QR if baseUrl given
+          const qrCodeDataUrl = baseUrl ? await QRCode.toDataURL(`${baseUrl}/chemicals/open?pin=`) : null;
+          await trx('chemical_containers').insert({
+            chemical_id: chemicalId,
+            location_id: locationId,
+            status: 'unopened',
+            container_type: containerType,
+            container_size: size,
+            container_unit: unit,
+            expiry_date: expiryDate,
+            qr_code: qrCodeDataUrl,
+            is_deleted: false,
+          });
+        }
+      }
+
+      await trx.commit();
+      return count;
+    } catch (err) {
+      await trx.rollback();
+      throw err;
+    }
+  },
+
+  // ─── getExpiringSoon (used by daily cron) ─────────────────
+  async getExpiringSoon(days = 30) {
+    return db('chemical_containers')
+      .where('is_deleted', false)
+      .whereNotNull('expiry_date')
+      .where('expiry_date', '<=', db.raw(`CURRENT_DATE + INTERVAL '${days}' days`))
+      .where('expiry_date', '>=', db.raw('CURRENT_DATE'))
+      .select('*');
+  },
+
+  // ─── transferContainers (your QR‑enhanced version) ─────────
   async transferContainers(chemicalId, quantity, fromLocationId, toLocationId, userId, baseUrl, expiryDate = null) {
     const trx = await db.transaction();
 
@@ -53,7 +171,7 @@ const Container = {
           }
           if (!success) throw new Error('Could not generate a unique PIN after 100 attempts');
         } else {
-          // generate QR code even if pin exists (transfer without PIN? should not happen, but just in case)
+          // generate QR code even if pin exists
           const qrCodeUrl = `${baseUrl}/chemicals/open?pin=${pin}`;
           const qrCodeDataUrl = await QRCode.toDataURL(qrCodeUrl);
           await trx('chemical_containers')
@@ -85,7 +203,7 @@ const Container = {
     }
   },
 
-  // get all bottles for lab user (sub-storage only, current=true, not deleted)
+  // ─── getBottlesForLabUser (sub‑storage only) ──────────────
   async getBottlesForLabUser(labId) {
     return db('chemical_containers')
       .join('chemicals', 'chemical_containers.chemical_id', 'chemicals.id')
@@ -101,6 +219,7 @@ const Container = {
       );
   },
 
+  // ─── open (with current flag logic, transactional) ────────
   async open(pin, userId) {
     const container = await this.findByPin(pin);
     if (!container) throw new Error('Container not found');
@@ -130,6 +249,7 @@ const Container = {
     return this.findById(container.id);
   },
 
+  // ─── voidContainer ─────────────────────────────────────────
   async voidContainer(id, userId) {
     const container = await this.findById(id);
     if (!container) throw new Error('Container not found');
@@ -140,6 +260,7 @@ const Container = {
     return this.findById(id);
   },
 
+  // ─── updateExpiry ──────────────────────────────────────────
   async updateExpiry(id, expiryDate) {
     const container = await this.findById(id);
     if (!container) throw new Error('Container not found');
@@ -150,6 +271,7 @@ const Container = {
     return this.findById(id);
   },
 
+  // ─── purgeOldOpened (soft‑delete old opened bottles) ──────
   async purgeOldOpened(labId, days = 30) {
     const cutoff = new Date();
     cutoff.setDate(cutoff.getDate() - days);

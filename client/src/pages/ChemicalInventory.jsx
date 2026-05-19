@@ -184,6 +184,7 @@ export default function ChemicalInventory() {
     setTransferLoading(true);
     try {
       await api.post('/transfers', {
+        item_type: 'chemical',          // ← ADD THIS
         chemical_id: selectedChem.id,
         quantity: transferQty,
         from_location_id: transferFrom,

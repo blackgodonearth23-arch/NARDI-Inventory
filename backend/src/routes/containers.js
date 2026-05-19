@@ -1,9 +1,8 @@
 const express = require('express');
 const router = express.Router();
-const db = require('../config/db');                     // <-- FIXED path
+const db = require('../config/db');                    
 const { authenticate } = require('../middleware/auth');
 const { createExpiryAlerts } = require('../services/alertService');
-
 // All routes require authentication
 router.use(authenticate);
 
